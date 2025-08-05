@@ -1,0 +1,123 @@
+##########
+# DEM    #
+##########
+
+dem = ./input_files/8m_geofabric.nc?z
+
+xmin = 1898150.000000
+xmax = 1922940.000000
+ymin = 5523060.000000
+ymax = 5545740.000000
+aoi = ./input_files/aoi_BGFLOOD.txt
+dx = 128.000000
+
+##############
+# Forcing    #
+##############
+frictionmodel = -1
+
+cfmap = ./input_files/manning_0.1.nc?z
+
+rainfile =./input_files/outputrain_test.nc?depth
+
+##########
+# Rivers #
+##########
+
+river = ./input_files/river_input/rid_8235420_BG.txt,1916638.780000,1916648.780000,5541286.160000,5541296.160000
+river = ./input_files/river_input/rid_8235357_BG.txt,1916638.780000,1916648.780000,5541286.160000,5541296.160000
+river = ./input_files/river_input/rid_8235539_BG.txt,1916638.780000,1916648.780000,5541286.160000,5541296.160000
+river = ./input_files/river_input/rid_8238421_BG.txt,1903562.190000,1903572.190000,5529924.270000,5529934.270000
+river = ./input_files/river_input/rid_8239401_BG.txt,1906820.680000,1906830.680000,5526344.130000,5526354.130000
+river = ./input_files/river_input/rid_8239402_BG.txt,1906820.680000,1906830.680000,5526344.130000,5526354.130000
+river = ./input_files/river_input/rid_8235120_BG.txt,1915040.130000,1915050.130000,5541798.030000,5541808.030000
+river = ./input_files/river_input/rid_8237290_BG.txt,1903813.150000,1903823.150000,5534029.010000,5534039.010000
+river = ./input_files/river_input/rid_8239500_BG.txt,1908255.560000,1908265.560000,5526062.880000,5526072.880000
+river = ./input_files/river_input/rid_8239501_BG.txt,1908255.560000,1908265.560000,5526062.880000,5526072.880000
+river = ./input_files/river_input/rid_8239533_BG.txt,1908590.750000,1908600.750000,5525937.880000,5525947.880000
+river = ./input_files/river_input/rid_8238739_BG.txt,1902837.580000,1902847.580000,5528841.400000,5528851.400000
+river = ./input_files/river_input/rid_8239138_BG.txt,1904134.070000,1904144.070000,5527232.000000,5527242.000000
+river = ./input_files/river_input/rid_8239154_BG.txt,1904134.070000,1904144.070000,5527232.000000,5527242.000000
+river = ./input_files/river_input/rid_8239241_BG.txt,1904804.650000,1904814.650000,5526982.370000,5526992.370000
+river = ./input_files/river_input/rid_8236893_BG.txt,1904054.990000,1904064.990000,5535798.640000,5535808.640000
+river = ./input_files/river_input/rid_8236908_BG.txt,1900988.890000,1900998.890000,5535810.680000,5535820.680000
+river = ./input_files/river_input/rid_8237243_BG.txt,1900514.890000,1900524.890000,5534606.330000,5534616.330000
+river = ./input_files/river_input/rid_8236845_BG.txt,1900908.290000,1900918.290000,5535925.110000,5535935.110000
+river = ./input_files/river_input/rid_8237040_BG.txt,1899928.530000,1899938.530000,5534852.140000,5534862.140000
+river = ./input_files/river_input/rid_8237155_BG.txt,1899928.530000,1899938.530000,5534852.140000,5534862.140000
+river = ./input_files/river_input/rid_8237310_BG.txt,1899454.740000,1899464.740000,5533647.750000,5533657.750000
+river = ./input_files/river_input/rid_8237413_BG.txt,1899454.740000,1899464.740000,5533647.750000,5533657.750000
+river = ./input_files/river_input/rid_8238125_BG.txt,1901482.250000,1901492.250000,5531120.130000,5531130.130000
+river = ./input_files/river_input/rid_8237534_BG.txt,1898828.720000,1898838.720000,5532894.210000,5532904.210000
+river = ./input_files/river_input/rid_8237663_BG.txt,1898828.720000,1898838.720000,5532894.210000,5532904.210000
+river = ./input_files/river_input/rid_8237810_BG.txt,1899214.000000,1899224.000000,5531878.030000,5531888.030000
+river = ./input_files/river_input/rid_8236200_BG.txt,1901516.360000,1901526.360000,5538347.360000,5538357.360000
+river = ./input_files/river_input/rid_8236233_BG.txt,1901516.360000,1901526.360000,5538347.360000,5538357.360000
+river = ./input_files/river_input/rid_8237940_BG.txt,1899129.000000,1899139.000000,5531881.410000,5531891.410000
+river = ./input_files/river_input/rid_8236929_BG.txt,1906096.100000,1906106.100000,5535715.910000,5535725.910000
+river = ./input_files/river_input/rid_8235673_BG.txt,1902080.220000,1902090.220000,5539659.280000,5539669.280000
+river = ./input_files/river_input/rid_8235916_BG.txt,1902080.220000,1902090.220000,5539659.280000,5539669.280000
+river = ./input_files/river_input/rid_8236387_BG.txt,1901319.560000,1901329.560000,5537687.990000,5537697.990000
+river = ./input_files/river_input/rid_8236438_BG.txt,1901051.050000,1901061.050000,5537365.100000,5537375.100000
+river = ./input_files/river_input/rid_8236506_BG.txt,1901051.050000,1901061.050000,5537365.100000,5537375.100000
+river = ./input_files/river_input/rid_8235416_BG.txt,1903432.520000,1903442.520000,5541495.520000,5541505.520000
+river = ./input_files/river_input/rid_8234694_BG.txt,1904046.100000,1904056.100000,5544028.660000,5544038.660000
+river = ./input_files/river_input/rid_8234706_BG.txt,1903669.790000,1903679.790000,5543154.130000,5543164.130000
+river = ./input_files/river_input/rid_8234933_BG.txt,1903669.790000,1903679.790000,5543154.130000,5543164.130000
+river = ./input_files/river_input/rid_8234200_BG.txt,1905121.630000,1905131.630000,5545319.790000,5545329.790000
+river = ./input_files/river_input/rid_8234253_BG.txt,1905121.630000,1905131.630000,5545319.790000,5545329.790000
+river = ./input_files/river_input/rid_8234263_BG.txt,1906134.480000,1906144.480000,5545056.360000,5545066.360000
+river = ./input_files/river_input/rid_8234343_BG.txt,1906389.940000,1906399.940000,5545045.990000,5545055.990000
+river = ./input_files/river_input/rid_8233959_BG.txt,1906309.290000,1906319.290000,5545160.480000,5545170.480000
+river = ./input_files/river_input/rid_8234308_BG.txt,1906309.290000,1906319.290000,5545160.480000,5545170.480000
+
+
+###############
+# Adaptation  #
+###############
+
+initlevel = 0
+Adaptation = Targetlevel,./input_files/TargetLevel.nc
+minlevel = 0
+maxlevel = 0
+
+################
+# Boundaries   #
+################
+
+left = 0
+right = ./input_files/tide_Porangahau.txt,2
+top = 0
+bot = 0
+
+#############
+# Timing    #
+#############
+
+outputtimestep = 3600.000000
+
+endtime = 342000.000000
+
+#############
+# Others    #
+#############
+
+gpudevice = 0
+vmax = 16
+
+#############
+# Output    #
+#############
+
+smallnc = 0
+
+TSOutput=priority_site_24325.txt,1905642.9,5543118.9
+TSOutput=priority_site_24325_1.txt,1905630.86,5543089.16
+TSOutput=priority_site_24304.txt,1902248.5,5533483.5
+TSOutput=priority_site_24301.txt,1903523.4,5534599.2
+TSOutput=priority_site_24301_1.txt,1903488.94,5534599.2
+
+outvars = zs, u, v, h, hmax, zsmax, Uh
+
+outfile = BGout.nc
+

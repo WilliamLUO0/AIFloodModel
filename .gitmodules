@@ -1,0 +1,9 @@
+[submodule "external/Flood-inundation-mapping"]
+	path = external/Flood-inundation-mapping
+	url = https://github.com/songwk0924/Flood-inundation-mapping.git
+[submodule "external/SwinIR"]
+	path = external/SwinIR
+	url = https://github.com/JingyunLiang/SwinIR.git
+[submodule "external/PFT-SR"]
+	path = external/PFT-SR
+	url = https://github.com/LabShuHangGU/PFT-SR.git

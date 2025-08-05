@@ -1,0 +1,61 @@
+newgrp uoa04425
+sacct
+nn_seff jobid
+squeue --me
+
+sinfo -o "%N %G"
+sinfo -N -p genoa -o "%N %G %t"
+sacct -S 2025-04-01 -j 474565 -X
+sinfo
+scontrol show node xxx
+
+bash -n your_script.sh
+sbatch your_job_script.sh
+cat slurm-429012.out
+tail -f slurm-429012.out
+scancel <jobid>
+
+mv source_file target_path
+cp source_file target_path
+mv folder_name target_path
+cp -r folder_name target_path
+
+ncview xxx.nc
+ncdump -h xxx.nc
+
+
+
+uoa04425-10937
+zluo784
+8CScvrlqgjo4ScGBRE6PjIcqTt1zKvBp
+
+New settings:
+  Access Key: zluo784
+  Secret Key: 8CScvrlqgjo4ScGBRE6PjIcqTt1zKvBp
+  Default Region: akl-1
+  S3 Endpoint: freezer.nesi.org.nz:7070
+  DNS-style bucket+hostname:port template for accessing a bucket: 210.7.37.122:7070
+  Encryption password: 
+  Path to GPG program: /usr/bin/gpg
+  Use HTTPS protocol: True
+  HTTP Proxy server name: 
+  HTTP Proxy server port: 0
+Test access with supplied credentials? [Y/n] Y
+Please wait, attempting to list all buckets...
+Success. Your access key and secret key worked fine :-)
+Now verifying that encryption works...
+Not configured. Never mind.
+Save settings? [y/N] y
+Configuration saved to '/home/zluo784/.s3cfg'
+
+s3cmd ls s3://<your-bucket-name>
+s3cmd ls -r s3://uoa04425-10937/
+s3cmd put mydata.tar.gz s3://<your-bucket-name>/
+s3cmd put --recursive --verbose Porangahau/ s3://uoa04425-10937/Data/
+s3cmd get s3://<your-bucket-name>/mydata.tar.gz
+s3cmd get s3://your-bucket-name/project1/data/my_folder.tar.gz /desired/path/
+s3cmd del s3://uoa04425-10937/Data/my_folder.tar.gz
+s3cmd del --recursive s3://uoa04425-10937/Data/Porangahau/
+tar -czvf my_folder.tar.gz my_folder/
+mkdir -p ~/my_target_dir
+tar -xzvf my_folder.tar.gz -C ~/my_target_dir
