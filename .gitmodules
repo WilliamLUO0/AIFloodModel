@@ -1,6 +1,6 @@
 [submodule "external/Flood-inundation-mapping"]
 	path = external/Flood-inundation-mapping
-	url = https://github.com/songwk0924/Flood-inundation-mapping.git
+	url = https://github.com/WilliamLUO0/Flood-inundation-mapping.git
 [submodule "external/SwinIR"]
 	path = external/SwinIR
 	url = https://github.com/JingyunLiang/SwinIR.git
