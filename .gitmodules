@@ -3,7 +3,7 @@
 	url = https://github.com/WilliamLUO0/Flood-inundation-mapping.git
 [submodule "external/SwinIR"]
 	path = external/SwinIR
-	url = https://github.com/JingyunLiang/SwinIR.git
+	url = https://github.com/WilliamLUO0/SwinIR.git
 [submodule "external/PFT-SR"]
 	path = external/PFT-SR
-	url = https://github.com/LabShuHangGU/PFT-SR.git
+	url = https://github.com/WilliamLUO0/PFT-SR.git
