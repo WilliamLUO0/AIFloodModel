@@ -1,0 +1,50 @@
+#!/bin/bash
+
+
+BGcoarse=$1
+Geofabrics=$2
+
+
+outfile=$3
+
+topofine=${Geofabrics}
+sourceinfo=${Geofabrics}
+
+mindepth=0.10
+MHWS=0.7
+maxslope=0.20
+refthreshold=0.3
+
+maxlevel=3
+
+# Find the final step in coarse output
+step=`ncdump -h ${BGcoarse} | grep "time =" |awk 'BEGIN{FS="("}{split($2,a," ");printf("%d",a[1]-1)}'`
+
+# Calculate the topography from coarse model (topo as seen by BG_Flood coarse)
+gmt grdmath ${BGcoarse}?zs_P0[1] ${BGcoarse}?h_P0[1] SUB  = zbcoarse.nc
+#Interpolate coarse topo to the same resolution and extent as original DEM
+gmt grdsample -R${topofine} zbcoarse.nc -Gzbc_finescale.nc
+# Need to cut original DEM to the same extent as coarse topo 
+gmt grdcut -Rzbc_finescale.nc ${topofine} -Gzbf.nc
+
+#Calculate slope of DEM
+gmt grdgradient zbc_finescale.nc  -D -Sslope_coarse-fs.nc
+
+# Extract the coarse water levels
+gmt grdmath ${BGcoarse}?zsmax_P0[${step}] 1 MUL = waterlevel_coarse.nc
+# interpolate the coarse water level to the fine scale DEM
+gmt grdsample -R${topofine} waterlevel_coarse.nc -Gzsmaxc_finescale.nc
+
+#Recalculate the water dept from coase water level with fine DEM
+gmt grdmath zsmaxc_finescale.nc zbc_finescale.nc SUB = hmaxc_finescale.nc
+
+# Estimate an error from the coarse modle relative to the fine topography and normalise
+gmt grdmath zbc_finescale.nc zbf.nc SUB ABS hmaxc_finescale.nc DIV hmaxc_finescale.nc ${mindepth} GT 0 NAN MUL 0 DENAN = junk.nc
+
+# Remove Ocean and steep slopes from the error above and scale to max level
+gmt grdmath zbc_finescale.nc ${MHWS} GT slope_coarse-fs.nc ${maxslope} LT MUL junk.nc MUL ${refthreshold} GT ${maxlevel} MUL = ${outfile}
+
+
+
+
+rm junk.nc hmaxc_finescale.nc zbc_finescale.nc zbf.nc slope_coarse-fs.nc zbcoarse.nc waterlevel_coarse.nc

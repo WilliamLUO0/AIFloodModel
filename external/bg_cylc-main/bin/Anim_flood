@@ -1,0 +1,114 @@
+#!/bin/bash
+
+## Plot
+
+gmtset FONT_LABEL 12p FONT_ANNOT_PRIMARY 10p FONT_TITLE 12p
+
+
+
+###########################################################################
+### User param
+
+#Netcdf input
+#XBfile=Test11.nc
+
+outputname=Waikanae_fineB
+
+BGfile=Adaptdemo_fine_newoutput.nc
+
+SatImg=Aerial_LINZ.tif
+
+
+
+#Enter plot extent here as xmin/xmax/ymin/ymax
+#region=-R1765000/1777700.0/5461300/5478900
+##region=-R1765000/1774000.0/5470000/5475000
+region=-R1768000/1775000.0/5471000/5475500
+#Plot size (default 13c for 13 cm )
+plotwidth=13c
+
+
+# Change below for perspective view instead of mapview
+persp=-p180/90
+
+# Locations of ticks and annotations
+tickX=500
+annotX=1000
+tickY=500
+annotY=1000
+
+
+#Choose one below
+makecpt -Cjet -T-1/1/0.1 -I >flood.cpt
+
+
+#####################################################
+## Select the last step
+finalstep=`grdinfo ${BGfile} -Q -Cn |awk '{printf("%d",$14-1)}'`
+
+## Read the minlevel and max level
+minlevel=`gdalinfo ${BGfile} | grep minlevel | awk '{split($1,a,"=");printf("%d",a[2])}'`
+maxlevel=`gdalinfo ${BGfile} | grep maxlevel | awk '{split($1,a,"=");printf("%d",a[2])}'`
+
+minlevel=0
+maxlevel=4
+
+printf "minlevel=%d, maxlevel=%d\n" ${minlevel} ${maxlevel}
+
+# set the map projection (linear here)
+proj=-JX${plotwidth}/0
+
+# Loop through steps
+for step in 24
+do
+	stepstr=`printf %04d ${step}`
+	# set the ps output (will be converted to png)
+	psfile=${outputname}-${stepstr}-MaxFlowDepth.ps
+
+	# Plot the basemap (Frame ticks, annotations and label)
+	psbasemap $proj $region -Bxa${annotX}f${tickX}+l"Easting [m]" -Bya${annotY}f${tickY}+l"Northing [m]" -BWSen -K >$psfile
+
+	# Plot the base imagery
+	#grdimage $proj $region $persp ${SatImg} -K -O >>$psfile
+
+	# loop through each levels
+	for l in `seq $minlevel $maxlevel`
+	do
+
+	  # Construct the variable string to read from the file
+	  if [[ $l -ge 0 ]]
+	  then
+		levstr=`printf "_P%d" $l`
+	  else
+		nl=`echo "-1*$l" |bc`
+		levstr=`printf "_N%d" $nl`
+	  fi
+
+	  printf "Plotting level %d (%s)\n" $l $levstr
+
+	  # Read the variable data and make shalow water NAN to become transparent on the plot
+	  grdmath ${BGfile}?hUmax${levstr}[${step}] 1.0 MUL = toplot.nc
+
+	  # Plot the result from above with -Q to make sure NANs are transparent
+	  grdimage $proj $region $persp  toplot.nc -Cflood.cpt  -Q -O -K >>$psfile
+
+	done
+
+	# Add color bar at on of the selected corners: BR (bottom right) BL (bottom left) TL (Top Left) TR
+	psscale $proj $region -DjTM+w6c/0.3c+e+o0.0c/5.6c+h+m -Cflood.cpt -Ba1.0f0.5+l"flood depth [m]" -O -K >>$psfile
+
+	# Fimnalise the file
+	psxy -T -J -R -O >>$psfile
+
+	# convert to PNG
+	#psconvert -DFrames $psfile -A -Tg -P
+	psconvert $psfile -A -Tg -P
+
+	rm $psfile
+done
+
+# for mp4 video
+#ffmpeg -r ${finalstep}/10 -i ./Frames/${outputname}-%04d-MaxFlowDepth.png -c:v libx264 -vf "fps=25,format=yuv420p,pad=ceil(iw/2)*2:ceil(ih/2)*2" ${outputname}.mp4
+
+#for .gif
+#ffmpeg -r ${finalstep}/10 -i ./Frames/${outputname}-%04d-MaxFlowDepth.png  ${outputname}.gif

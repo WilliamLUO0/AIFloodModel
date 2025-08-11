@@ -1,0 +1,67 @@
+#!/bin/bash
+
+#
+#inputnc=/nesi/project/niwa03440/careysmitht/waikanae/VCSN_waikanae_200501_hourly_500m_nztm.nc
+
+inputnc=$1
+
+Outpufile=$3
+
+mask=$2
+
+reftime="$4"
+
+
+# first build the mask
+grdmask ${mask} -R${inputnc}?depth[0] -N0/0/1 -Gmask_tmp.nc
+
+#| grep ime =" |awk '{if($3=="UNLIMITED"){split($6,a,"(");printf("%d",a[2]-1)}else{printf("%d",$3-1)}}'
+
+
+nstep=`ncdump -h ${inputnc} | grep "time =" |awk '{if($3=="UNLIMITED"){split($6,a,"(");printf("%d",a[2]-1)}else{printf("%d",$3-1)}}'`
+
+#first step
+step=0
+grdmath ${inputnc}?depth[${step}] mask_tmp.nc MUL 0 DENAN = depth.tmp
+ttt=`echo $step |bc -l`
+ncap2 -s 'defdim("time",1);time[$time]='$ttt'f;time@long_name="Time";' -O depth.tmp depth_wt.tmp
+ncwa -a time depth_wt.tmp out.tmp
+ncecat -u time out.tmp out2.tmp
+ncks --mk_rec_dmn time -O out2.tmp ${Outpufile}
+
+rm *.tmp
+
+
+ for step in `seq 1 ${nstep}`
+ do
+   pstp=`echo ${step}-1|bc`
+   #grdmath ${inputnc}?depth[${step}] DUP ${inputnc}?depth[${pstp}] SUB ADD 6 MUL 0 MAX mask_tmp.nc MUL = depth.tmp
+   grdmath ${inputnc}?depth[${step}] mask_tmp.nc MUL 0 DENAN = depth.tmp
+   # Do dummy
+   #grdmath ${inputnc}?depth[${step}] 0 MUL 0.0 ADD mask_tmp.nc MUL = depth.tmp
+   ttt=`echo $step |bc -l`
+   ncap2 -s 'defdim("time",1);time[time]='$ttt';time@long_name="Time";' -O depth.tmp depth_wt.tmp
+   ncwa -a time depth_wt.tmp out.tmp
+   ncecat -u time out.tmp out2.tmp
+   ncks --mk_rec_dmn time out2.tmp  depth_time.tmp
+
+   ncrcat -h ${Outpufile} depth_time.tmp zsNZTM_alltime.tmp
+
+
+
+   mv zsNZTM_alltime.tmp ${Outpufile}
+
+   rm *.tmp
+
+ done
+
+ time0=`ncdump -v time ${Outpufile} | grep -A2 'data:' | tail -n1 | cut -d "," -f1 | cut -d "=" -f2 | tr -d "[:blank:]"`
+ncap2 -s time-=${time0} ${Outpufile} -O temp.nc
+ncap2 -s time*=3600.0 temp.nc -O ${Outpufile}
+time_units="seconds since $reftime"
+#ncatted -a units,time,o,c,"${time_units}" $outputnc
+
+ncatted -a units,time,o,c,"${time_units}" ${Outpufile}
+rm temp.nc
+
+rm mask_tmp.nc

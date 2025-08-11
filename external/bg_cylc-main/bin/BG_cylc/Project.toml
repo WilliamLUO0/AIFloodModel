@@ -1,0 +1,12 @@
+name = "BG_cylc"
+uuid = "33256b63-b5c0-4dee-928d-f9212d73b37f"
+authors = ["Cyprien Bosserelle <Cyprien.Bosserelle@niwa.co.nz>"]
+version = "0.1.0"
+
+[deps]
+CFTime = "179af706-886a-5703-950a-314cd64e0468"
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+DelimitedFiles = "8bb1440f-4735-579b-a4ab-409b98df4dab"
+NetCDF = "30363a11-5582-574a-97bb-aa9a979735b9"
+Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"

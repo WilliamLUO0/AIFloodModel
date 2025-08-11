@@ -1,0 +1,142 @@
+#!/bin/bash
+
+## Plot
+
+gmt gmtset FONT_LABEL 12p FONT_ANNOT_PRIMARY 10p FONT_TITLE 12p
+
+
+
+###########################################################################
+### User param
+
+#Netcdf input
+#XBfile=Test11.nc
+
+infofile=$1
+
+
+outputname=$2
+
+
+
+
+BGfileroot=`awk '{if(NR==12){print($1)}}' $infofile`
+
+BGfile=${BGfileroot}.nc
+#SatImg=Aerial_LINZ.tif
+Topofile=`awk '{if(NR==3){print($1)}}' $infofile`
+
+aoifile=`awk '{if(NR==5){print($1)}}' $infofile`
+
+injectionfile=`awk '{if(NR==7){print($1)}}' $infofile`
+#maskcoast=../GIS/NZ_Shoreline3.gmt
+#regplot=
+
+#Enter plot extent here as xmin/xmax/ymin/ymax
+#region=-R1765000/1777700.0/5461300/5478900
+##region=-R1765000/1774000.0/5470000/5475000
+#region=-R1768000/1775000.0/5471000/5475500
+# zoom to Marae
+#region=`gmt grdinfo -I10 ${BGfile}?h_P`
+#Plot size (default 13c for 13 cm )
+plotwidth=13c
+
+
+# Change below for perspective view instead of mapview
+persp=-p180/90
+
+# Locations of ticks and annotations
+tickX=`echo ${regplot} | awk 'BEGIN{FS="/"}{print(int(($2-$1)/5/1000+1.0)*1000/2)}'`
+annotX=`echo ${regplot} | awk 'BEGIN{FS="/"}{print(int(($2-$1)/5/1000+1.0)*1000)}'`
+tickY=`echo ${regplot} | awk 'BEGIN{FS="/"}{print(int(($2-$1)/5/1000+1.0)*1000/2)}'`
+annotY=`echo ${regplot} | awk 'BEGIN{FS="/"}{print(int(($2-$1)/5/1000+1.0)*1000)}'`
+
+
+#Choose one below
+gmt makecpt -Cabyss -T0/2/0.2 -I >flood.cpt
+gmt makecpt -Cwiki-france.cpt -T-500/500 > topo.cpt
+
+#####################################################
+## Select the last step
+step=`ncdump -h ${BGfile} | grep "time =" |awk 'BEGIN{FS="("}{split($2,a," ");printf("%d",a[1]-1)}'`
+
+##
+#gmtspatial $maskcoast -R${BGfile}?hmax_P4[${step}] -C > local_coastline.tmp
+
+#grdmask local_coastline.tmp -R${BGfile}?hmax_P4[${step}] -NNaN/1/1 -Gmask.tmp
+
+# step=`grdinfo ${BGfile} -Q -Cn |awk '{printf("%d",$14-1)}'`
+
+## Read the minlevel and max level
+minlevel=`gdalinfo ${BGfile} | grep minlevel | awk '{split($1,a,"=");printf("%d",a[2])}'`
+maxlevel=`gdalinfo ${BGfile} | grep maxlevel | awk '{split($1,a,"=");printf("%d",a[2])}'`
+
+if [[ $minlevel -ge 0 ]]
+  then
+    minlevstr=`printf "_P%d" $minlevel`
+  else
+    nl=`echo "-1*$minlevel" |bc`
+    minlevstr=`printf "_N%d" $nl`
+fi
+
+
+
+region=`gmt grdinfo -I10 ${BGfile}?h${minlevstr}[0]`
+
+printf "minlevel=%d, maxlevel=%d\n" ${minlevel} ${maxlevel}
+
+# set the map projection (linear here)
+proj=-JX${plotwidth}/0
+
+# set the ps output (will be converted to png)
+psfile=${outputname}-MaxFlowDepth.ps
+
+# Plot the basemap (Frame ticks, annotations and label)
+gmt psbasemap $proj $region -Bxaf+l"Easting [m]" -Byaf+l"Northing [m]" -BWSen -K -P >$psfile
+
+# Plot the base imagery
+#grdimage $proj $region $persp ${SatImg} -D -K -O >>$psfile
+# Plot topography
+gmt grdimage $proj $region $persp ${Topofile} -I+a-45+nt0.4+m0 -Ctopo.cpt -O -K >>$psfile
+
+# loop through each levels
+for l in `seq $minlevel $maxlevel`
+do
+
+   # Construct the variable string to read from the file
+   if [[ $l -ge 0 ]]
+   then
+     levstr=`printf "_P%d" $l`
+   else
+     nl=`echo "-1*$l" |bc`
+     levstr=`printf "_N%d" $nl`
+   fi
+
+   printf "Plotting level %d (%s)\n" $l $levstr
+
+  # Read the variable data and make shalow water NAN to become transparent on the plot
+  gmt grdmath ${BGfile}?hmax${levstr}[${step}] DUP 0.01 GT 0.0 NAN MUL = toplot.nc
+  #grdmath ${BGfile}?hmax_P0[${step}] DUP 0.03 GT 0.0 NAN MUL mask.tmp MUL = toplot.nc
+
+  #cp toplot.nc ${outputname}${levstr}.nc
+
+  # Plot the result from above with -Q to make sure NANs are transparent
+  gmt grdimage $proj $region $persp  toplot.nc -Cflood.cpt -t40 -Q -O -K >>$psfile
+
+done
+
+# Add AOI
+gmt psxy $proj $region $persp ${aoifile} -W0.7p,black -O -K >>$psfile
+
+gmt psxy $proj $region $persp ${injectionfile} -i1,2 -Sc0.07c -Gred -W0.3p,black -O -K >>$psfile
+
+# Add color bar at on of the selected corners: BR (bottom right) BL (bottom left) TL (Top Left) TR
+gmt psscale $proj $region -DJTR+w6c/0.3c+e+o2.0c/-7.0c+m -Cflood.cpt -Ba0.2f0.1+l"flood depth [m]" -O -K >>$psfile
+
+# Fimnalise the file
+gmt psxy -T -J -R -O >>$psfile
+
+# convert to PNG
+gmt psconvert $psfile -A -Tg -P
+
+rm $psfile toplot.nc flood.cpt

@@ -1,0 +1,14 @@
+#!Jinja2
+
+{% set OUTPUT_DIR="/nesi/nobackup/niwa03440/Cylc-Workflow-Outputs/Initial-Runs" %}
+{% set FILE_GPKG="/nesi/project/niwa03440/catchments/December_2023_Floodplains_2.gpkg" %}
+
+{% set TIDESURF = "/nesi/project/niwa03440/bosserellec/bg_cylc/data/tide_surface_20210923_tidal_cons_output.nc"%}
+{% set JULIADEPOT = "/nesi/project/niwa03440/julia/depot_MauiCS"%}
+{% set STOPBANKS = "/nesi/project/niwa03440/GIS/NZIS_v1_new.shp"%}
+{% set GPU_SRC = "Mahuika" %}
+{% set BGFLOOD_TAG = "netcdf_A100" %}
+{# Mahuika Milan Maui  #}
+
+{% set SLURM_JOB_ACC_ID = "niwa03440" %}
+{% set SLURM_PARTITION = "nesi_prepost" %}

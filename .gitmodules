@@ -7,3 +7,7 @@
 [submodule "external/PFT-SR"]
 	path = external/PFT-SR
 	url = https://github.com/WilliamLUO0/PFT-SR.git
+[submodule "external/BG_Flood"]
+	path = external/BG_Flood
+	url = https://github.com/CyprienBosserelle/BG_Flood.git
+	branch = ManyRivers

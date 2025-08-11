@@ -1,0 +1,23 @@
+#!Jinja2
+
+{% set RAININ="/nesi/nobackup/niwa03440/gabrielle/Model/VCSN_20230212-20230216_nzcsmdisaggdaily_500m_nztm.nc" %}
+{% set TIDESURF="/nesi/project/niwa03440/bosserellec/bg_cylc/data/tide_surface_20210923_tidal_cons_output.nc" %}
+{% set GEOFABRICFILE="/nesi/project/niwa03440/geofabrics/caches/NZ20_Hawkes/geofabric_4m.nc" %}
+{% set ROUGHNESSFILE="/nesi/project/niwa03440/geofabrics/caches/NZ20_Hawkes/geofabric_4m.nc?zo" %}
+{% set TOPNETFOLDER="/nesi/project/niwa03440/bosserellec/TCGabrielle/" %}
+{% set TOPNETSTREAMQ="/nesi/project/niwa03440/bosserellec/TCGabrielle/streamq_2023021122_utc_topnet_8000000_strahler1-99.nc" %}
+{% set TIMEREF="2023021122" %}
+{% set JULIADEPOT="/nesi/project/niwa03440/julia/depot_MauiCS" %}
+
+## If geopackage:
+## {# set ISGEOPACKAGE = "1" #}
+{% set GEOPACKAGE="/nesi/project/niwa03440/catchments/Catchment_20230712.gpkg" %}
+{% set LOCATION="Tukituki" %}
+
+## If no geopackage:
+{% set DOMAIN="/nesi/project/niwa03440/bosserellec/FloodAotearoaDomains/Napier/domain.geojson" %}
+{% set RAINMASK="/nesi/project/niwa03440/bosserellec/FloodAotearoaDomains/Napier/Rainmask.geojson" %}
+{% set BGFLOODDOMAIN="/nesi/project/niwa03440/bosserellec/FloodAotearoaDomains/Napier/BG_domain.geojson" %}
+{% set REACH_REGION = [8207055, 8202391, 8213911, 8213000, 8194101] %}
+
+

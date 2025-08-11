@@ -1,0 +1,1071 @@
+#!Jinja2
+
+{% import "inputs.j2" as inputs %}
+
+{# set FILE_GPKG = FILE_GPKG | default("/nesi/project/niwa03440/catchments/Catchment_20230825.gpkg") #}
+{% set LOC = LOCATION | default("Nuhaka") %}
+{% set MODEL_DURATION = DURATION | default("12") %}
+{% set MODEL_RETURNPERIOD = RETURNPERIOD | default("100") %}
+{% set MODEL_TEMP = TEMP | default("0") %}
+{% set SCENARIO = SCEN | default("100y_6h_0c") %}
+{% set RUN_DIR = RUN_DIR | default("$CYLC_WORKFLOW_RUN_DIR") %}
+
+
+[scheduling]
+    cycling mode = integer
+    initial cycle point = 1
+    [[graph]]
+        R1="""
+
+            read_gpkg? => Get_injectionXY? => proj_injection? => make_injection? => prep_info?
+            prep_info? => prep_rain? => prep_raintime?
+
+            prep_elevation? => prep_info? => prep_tidebnd? => prep_tide? => synch_tide?
+
+            prep_roughness? & prep_elevation? & prep_raintime? & prep_info? & synch_tide? => prep_param_coarse?
+
+            prep_info? => prep_lake? => prep_lake_bnd?
+
+            
+
+            #Check_Compile:fail? => Compile_BG_{{inputs.GPU_SRC}}?
+            #Check_Compile? | Compile_BG_{{inputs.GPU_SRC}}? => Run_BG_coarse_{{inputs.GPU_SRC}}?
+
+            Compile_BG_{{inputs.GPU_SRC}}? => Run_BG_coarse_{{inputs.GPU_SRC}}?
+
+            prep_param_coarse? & prep_lake_bnd? => Add_Lakes_BG_coarse? => Run_BG_coarse_{{inputs.GPU_SRC}}?
+            Run_BG_coarse_{{inputs.GPU_SRC}}? => prep_targetrefine? & prep_param_fine? => Add_Lakes_BG_fine => Run_BG_fine_{{inputs.GPU_SRC}}?
+            Run_BG_fine_{{inputs.GPU_SRC}}? => PlotFlood? & CollapseBG? => CreateTiff?
+            Run_BG_fine_{{inputs.GPU_SRC}}? => Get_EVA_XY? => proj_EVA? => HydroG_EVA?
+
+           
+
+            #Run_BG_fine_{{inputs.GPU_SRC}}? => sanity_checks
+
+            # Copy results and remove lock
+            #CreateTiff? & HydroG_EVA? & sanity_checks? => Copy_Results => remove_lock
+            CreateTiff? & HydroG_EVA? => Copy_Results => remove_lock
+
+            # Write logs for any failure and create failure file
+            read_gpkg:fail? | prep_rain:fail? | Get_injectionXY:fail? | proj_injection:fail? | make_injection:fail? | prep_info:fail? | prep_elevation:fail? | prep_tide:fail? | synch_tide:fail? | prep_roughness:fail? | prep_param_coarse:fail? | prep_param_fine:fail? | Run_BG_coarse_{{inputs.GPU_SRC}}:fail? | prep_targetrefine:fail? | Run_BG_fine_{{inputs.GPU_SRC}}:fail? | PlotFlood:fail? | CollapseBG:fail? | CreateTiff:fail? |  Get_EVA_XY:fail? | proj_EVA:fail? | HydroG_EVA:fail? => copy_logs
+            copy_logs => create_fail
+            """
+[runtime]
+    [[root]]
+        [[[environment]]]
+            LOCATION = {{LOC}}
+            GEOFABRIC_RESO={{inputs.GEOFABRIC_RESOLUTION}}
+            MODEL_NAME = {{SCENARIO}}
+            RAININ = {{inputs.OUTPUT_DIR}}/{{LOC}}/${MODEL_NAME}/Design_Storm/${MODEL_NAME}_nztm.nc
+            GEOFABRICFILE = {{inputs.OUTPUT_DIR}}/{{LOC}}/${GEOFABRIC_RESO}m_geofabric.nc
+            {% if (inputs.DEMFILE is defined and inputs.DEMFILE != "") %}
+                GEOFABRICFILE = {{inputs.OUTPUT_DIR}}/{{LOC}}/{{inputs.DEMFILE}}
+            {% endif  %}
+            ROUGHNESSFILE = {{inputs.OUTPUT_DIR}}/{{LOC}}/${GEOFABRIC_RESO}m_geofabric.nc?zo
+            TOPNETFOLDER = {{inputs.OUTPUT_DIR}}/{{LOC}}/${MODEL_NAME}/TopNet
+            GEOPACKAGE = {{inputs.FILE_GPKG}}
+            TIDESURF = {{inputs.TIDESURF}}
+            JULIADEPOT = {{inputs.JULIADEPOT}}
+            STOPBANKS = {{inputs.STOPBANKS}}
+
+			LAKEFILE = {{inputs.LAKEFILE}}
+
+            DOMAIN=${CYLC_WORKFLOW_RUN_DIR}/domain.geojson
+            DOMAINMASK=${CYLC_WORKFLOW_RUN_DIR}/domainmask.geojson
+            RAINMASK=${CYLC_WORKFLOW_RUN_DIR}/rainmask.geojson
+            BGFLOODDOMAIN=${CYLC_WORKFLOW_RUN_DIR}/flooddomain.geojson
+
+            RAINOUT = ${CYLC_WORKFLOW_RUN_DIR}/outputrain_test.nc
+            TIDEFILE = ${CYLC_WORKFLOW_RUN_DIR}/tidebnd.nc
+            TIDEBDNPOLY = ${CYLC_WORKFLOW_RUN_DIR}/tidebndpoly.bnd
+            INFOFILE = ${CYLC_WORKFLOW_RUN_DIR}/info.txt
+            DEMFILE=${CYLC_WORKFLOW_RUN_DIR}/Elevation.nc
+
+            INJECTION = ${CYLC_WORKFLOW_RUN_DIR}/InjectPoints.txt
+            INJECTIONFOLDER = ${CYLC_WORKFLOW_RUN_DIR}/
+
+            DX = 64
+            LEVELS = 0,3,0
+
+            ZS_INIT = -1.0
+            {% if (inputs.SLR is defined and inputs.SLR != "") %}
+                SLR = {{inputs.SLR}}
+            {% else %}
+                SLR = 0.0
+            {% endif  %}
+
+
+
+            #Change to 0,4,0 if reso is 4m
+            {% if inputs.GEOFABRIC_RESOLUTION == 4 %}
+                LEVELS = 0,4,0
+            {% endif %}
+            TARGETEV = ${CYLC_WORKFLOW_RUN_DIR}/Target_refine2.nc
+            BGPARAM_COARSE = BG_param_coarse.txt
+            BGPARAM_THIN = BG_param_thin.txt
+            OUTFOLDER = ${CYLC_WORKFLOW_RUN_DIR}/
+            # No .nc in the output name below only root name the .nc gets added in MakBGparam.jl
+            BGOUTFILE = ${CYLC_WORKFLOW_RUN_DIR}/${LOCATION}_${MODEL_NAME}_Inundation
+			JULIAPROJ=${CYLC_WORKFLOW_RUN_DIR}/bin/BG_cylc/
+            PYTHONPATH=${CYLC_WORKFLOW_RUN_DIR}/lib/python/
+
+            LOCK_FILE = {{inputs.OUTPUT_DIR}}/{{LOC}}/$MODEL_NAME//BG_Flood/bgflood.lock
+            FAIL_FILE = {{inputs.OUTPUT_DIR}}/{{LOC}}/$MODEL_NAME/BG_Flood/bgflood.failure
+            OUT_DIR = {{inputs.OUTPUT_DIR}}/{{LOC}}/$MODEL_NAME/BG_Flood
+            TMPDIR = /nesi/nobackup/{{inputs.SLURM_JOB_ACC_ID}}/$USER
+
+     [[Maui_Anc_prepost]]
+        platform=maui-cs-slurm
+        [[[directives]]]
+             --time=0:40:00
+             --account=niwa03440
+             --partition=nesi_prepost
+             #--gpus-per-node=1
+             #--partition=nesi_research
+             --ntasks=1
+             --cpus-per-task=1
+             --mem=8GB
+
+        #[[meta]] = Maui preprocessing setup
+
+     [[Maui_Anc_GMT]]
+        inherit = Maui_Anc_prepost
+        pre-script="""
+            module load GMT/6.4.0-GCC-7.1.0
+        """
+
+     [[Maui_Anc_JULIA]]
+        inherit = Maui_Anc_prepost
+        pre-script="""
+            module load Julia/1.7.1-GCC-9.2.0-VTune
+            export JULIA_DEPOT_PATH=${JULIADEPOT}
+        """
+
+     [[Maui_Anc_BG]]
+       platform = maui-cs-slurm
+       env-script="""
+            module load netCDF/4.7.4-GCC-9.2.0
+            module load CUDA/11.4.1
+            #module load CUDA/11.4.1
+            #module load netCDF-C++4/4.3.0-GCC-7.1.0
+        """
+        [[[directives]]]
+             --account=niwa03440
+             --gpus-per-node=1
+             --partition=nesi_gpu
+             --ntasks=1
+             --cpus-per-task=1
+             --mem=32GB
+
+        [[Maui_Anc_BG_visu]]
+       platform = maui-cs-slurm
+       env-script="""
+            module load netCDF/4.7.4-GCC-9.2.0
+            module load CUDA/11.4.1
+            #module load CUDA/11.4.1
+            #module load netCDF-C++4/4.3.0-GCC-7.1.0
+        """
+        [[[directives]]]
+             --account=niwa03440
+             --gpus-per-node=1
+             --partition=niwa_work
+             --ntasks=1
+             --cpus-per-task=1
+             --mem=32GB
+             --nodelist=vgpuwsg002,vgpuwsg003
+
+     [[Maui_Anc_BG_Compile]]
+       inherit = Maui_Anc_prepost
+       env-script="""
+            module load netCDF/4.7.4-GCC-9.2.0
+            module load CUDA/11.4.1
+            #module load CUDA/11.4.1
+            #module load netCDF-C++4/4.3.0-GCC-7.1.0
+        """
+
+     [[Mahuika_BG]]
+       platform = mahuika-slurm
+       env-script="""
+            module load netCDF-C++4/4.3.1-gimpi-2020a
+            module load CUDA/11.4.1
+       """
+       [[[directives]]]
+             --account=niwa03440
+             --gpus-per-node=A100:1
+             --partition=hgx
+             --ntasks=1
+             --cpus-per-task=2
+             --mem=80GB
+
+     [[Mahuika_BG_Compile]]
+       platform = mahuika-slurm
+       env-script="""
+            module load netCDF-C++4/4.3.1-gimpi-2020a
+            module load CUDA/11.4.1
+       """
+       [[[directives]]]
+             --time=0:40:00
+             --account=niwa03440
+             --mem-per-cpu=4096
+             --ntasks=1
+             --cpus-per-task=1
+
+     [[Milan_BG]]
+       platform = maui-cs-slurm
+       env-script="""
+            export PATH=/opt/nesi/CS400_centos7_bdw/XALT/current/bin:/opt/nesi/CS400_centos7_bdw/CUDA/11.2.0:/opt/nesi/CS400_centos7_bdw/CUDA/11.2.0/nvvm/bin:/opt/nesi/CS400_centos7_bdw/CUDA/11.2.0/bin:/opt/nesi/CS400_centos7_bdw/netCDF/4.7.3-gimpi-2020a/bin:/opt/nesi/CS400_centos7_bdw/PCRE/8.43-GCCcore-9.2.0/bin:/opt/nesi/CS400_centos7_bdw/cURL/7.64.0-GCCcore-9.2.0/bin:/opt/nesi/CS400_centos7_bdw/HDF5/1.10.5-gimpi-2020a/bin:/opt/nesi/CS400_centos7_bdw/impi/2019.6.166-GCC-9.2.0/intel64/libfabric/bin:/opt/nesi/CS400_centos7_bdw/impi/2019.6.166-GCC-9.2.0/intel64/bin:/opt/nesi/CS400_centos7_bdw/binutils/2.32-GCCcore-9.2.0/bin:/opt/nesi/CS400_centos7_bdw/GCCcore/9.2.0/bin:$PATH
+            export LD_LIBRARY_PATH=/opt/nesi/CS400_centos7_bdw/CUDA/11.2.0/nvvm/lib64:/opt/nesi/CS400_centos7_bdw/CUDA/11.2.0/extras/CUPTI/lib64:/opt/nesi/CS400_centos7_bdw/CUDA/11.2.0/lib64:/opt/nesi/CS400_centos7_bdw/netCDF/4.7.3-gimpi-2020a/lib64:/opt/nesi/CS400_centos7_bdw/PCRE/8.43-GCCcore-9.2.0/lib:/opt/nesi/CS400_centos7_bdw/cURL/7.64.0-GCCcore-9.2.0/lib:/opt/nesi/CS400_centos7_bdw/HDF5/1.10.5-gimpi-2020a/lib:/opt/nesi/CS400_centos7_bdw/Szip/2.1.1-GCCcore-9.2.0/lib:/opt/nesi/CS400_centos7_bdw/impi/2019.6.166-GCC-9.2.0/intel64/libfabric/lib:/opt/nesi/CS400_centos7_bdw/impi/2019.6.166-GCC-9.2.0/intel64/lib:/opt/nesi/CS400_centos7_bdw/impi/2019.6.166-GCC-9.2.0/intel64/lib/release:/opt/nesi/CS400_centos7_bdw/impi/2019.6.166-GCC-9.2.0/intel64/lib/release_mt:/opt/nesi/CS400_centos7_bdw/binutils/2.32-GCCcore-9.2.0/lib:/opt/nesi/CS400_centos7_bdw/zlib/1.2.11-GCCcore-9.2.0/lib:/opt/nesi/CS400_centos7_bdw/GCCcore/9.2.0/lib64:/opt/nesi/CS400_centos7_bdw/GCCcore/9.2.0/lib
+
+       """
+       [[[directives]]]
+             --cluster=maui_ancil
+             --gpus-per-node=A100:1
+             --partition=niwa_work
+             --account=niwap03440
+             --ntasks=1
+             --cpus-per-task=2
+             --mem=80GB
+
+     [[MilanSlice_BG]]
+       platform = maui-cs-slurm
+       env-script="""
+            export PATH=/opt/nesi/CS400_centos7_bdw/XALT/current/bin:/opt/nesi/CS400_centos7_bdw/CUDA/11.2.0:/opt/nesi/CS400_centos7_bdw/CUDA/11.2.0/nvvm/bin:/opt/nesi/CS400_centos7_bdw/CUDA/11.2.0/bin:/opt/nesi/CS400_centos7_bdw/netCDF/4.7.3-gimpi-2020a/bin:/opt/nesi/CS400_centos7_bdw/PCRE/8.43-GCCcore-9.2.0/bin:/opt/nesi/CS400_centos7_bdw/cURL/7.64.0-GCCcore-9.2.0/bin:/opt/nesi/CS400_centos7_bdw/HDF5/1.10.5-gimpi-2020a/bin:/opt/nesi/CS400_centos7_bdw/impi/2019.6.166-GCC-9.2.0/intel64/libfabric/bin:/opt/nesi/CS400_centos7_bdw/impi/2019.6.166-GCC-9.2.0/intel64/bin:/opt/nesi/CS400_centos7_bdw/binutils/2.32-GCCcore-9.2.0/bin:/opt/nesi/CS400_centos7_bdw/GCCcore/9.2.0/bin:$PATH
+            export LD_LIBRARY_PATH=/opt/nesi/CS400_centos7_bdw/CUDA/11.2.0/nvvm/lib64:/opt/nesi/CS400_centos7_bdw/CUDA/11.2.0/extras/CUPTI/lib64:/opt/nesi/CS400_centos7_bdw/CUDA/11.2.0/lib64:/opt/nesi/CS400_centos7_bdw/netCDF/4.7.3-gimpi-2020a/lib64:/opt/nesi/CS400_centos7_bdw/PCRE/8.43-GCCcore-9.2.0/lib:/opt/nesi/CS400_centos7_bdw/cURL/7.64.0-GCCcore-9.2.0/lib:/opt/nesi/CS400_centos7_bdw/HDF5/1.10.5-gimpi-2020a/lib:/opt/nesi/CS400_centos7_bdw/Szip/2.1.1-GCCcore-9.2.0/lib:/opt/nesi/CS400_centos7_bdw/impi/2019.6.166-GCC-9.2.0/intel64/libfabric/lib:/opt/nesi/CS400_centos7_bdw/impi/2019.6.166-GCC-9.2.0/intel64/lib:/opt/nesi/CS400_centos7_bdw/impi/2019.6.166-GCC-9.2.0/intel64/lib/release:/opt/nesi/CS400_centos7_bdw/impi/2019.6.166-GCC-9.2.0/intel64/lib/release_mt:/opt/nesi/CS400_centos7_bdw/binutils/2.32-GCCcore-9.2.0/lib:/opt/nesi/CS400_centos7_bdw/zlib/1.2.11-GCCcore-9.2.0/lib:/opt/nesi/CS400_centos7_bdw/GCCcore/9.2.0/lib64:/opt/nesi/CS400_centos7_bdw/GCCcore/9.2.0/lib
+
+
+            export CUDA_VISIBLE_DEVICES=$(nvidia-smi -L | grep "Device  $((${CUDA_VISIBLE_DEVICES}-3))" | grep -o "MIG-[-a-z0-9]*")
+       """
+       [[[directives]]]
+             --cluster=maui_ancil
+             --gpus-per-node=nvidia_a100_1g.10gb:1
+             --partition=niwa_work
+             --account=niwap03440
+             --ntasks=1
+             --cpus-per-task=2
+             --mem=10GB
+
+     [[Milan_Compile_BG]]
+       inherit = Maui_Anc_prepost
+       env-script="""
+            export PATH=/opt/nesi/CS400_centos7_bdw/XALT/current/bin:/opt/nesi/CS400_centos7_bdw/CUDA/11.2.0:/opt/nesi/CS400_centos7_bdw/CUDA/11.2.0/nvvm/bin:/opt/nesi/CS400_centos7_bdw/CUDA/11.2.0/bin:/opt/nesi/CS400_centos7_bdw/netCDF/4.7.3-gimpi-2020a/bin:/opt/nesi/CS400_centos7_bdw/PCRE/8.43-GCCcore-9.2.0/bin:/opt/nesi/CS400_centos7_bdw/cURL/7.64.0-GCCcore-9.2.0/bin:/opt/nesi/CS400_centos7_bdw/HDF5/1.10.5-gimpi-2020a/bin:/opt/nesi/CS400_centos7_bdw/impi/2019.6.166-GCC-9.2.0/intel64/libfabric/bin:/opt/nesi/CS400_centos7_bdw/impi/2019.6.166-GCC-9.2.0/intel64/bin:/opt/nesi/CS400_centos7_bdw/binutils/2.32-GCCcore-9.2.0/bin:/opt/nesi/CS400_centos7_bdw/GCCcore/9.2.0/bin:$PATH
+            export LD_LIBRARY_PATH=/opt/nesi/CS400_centos7_bdw/CUDA/11.2.0/nvvm/lib64:/opt/nesi/CS400_centos7_bdw/CUDA/11.2.0/extras/CUPTI/lib64:/opt/nesi/CS400_centos7_bdw/CUDA/11.2.0/lib64:/opt/nesi/CS400_centos7_bdw/netCDF/4.7.3-gimpi-2020a/lib64:/opt/nesi/CS400_centos7_bdw/PCRE/8.43-GCCcore-9.2.0/lib:/opt/nesi/CS400_centos7_bdw/cURL/7.64.0-GCCcore-9.2.0/lib:/opt/nesi/CS400_centos7_bdw/HDF5/1.10.5-gimpi-2020a/lib:/opt/nesi/CS400_centos7_bdw/Szip/2.1.1-GCCcore-9.2.0/lib:/opt/nesi/CS400_centos7_bdw/impi/2019.6.166-GCC-9.2.0/intel64/libfabric/lib:/opt/nesi/CS400_centos7_bdw/impi/2019.6.166-GCC-9.2.0/intel64/lib:/opt/nesi/CS400_centos7_bdw/impi/2019.6.166-GCC-9.2.0/intel64/lib/release:/opt/nesi/CS400_centos7_bdw/impi/2019.6.166-GCC-9.2.0/intel64/lib/release_mt:/opt/nesi/CS400_centos7_bdw/binutils/2.32-GCCcore-9.2.0/lib:/opt/nesi/CS400_centos7_bdw/zlib/1.2.11-GCCcore-9.2.0/lib:/opt/nesi/CS400_centos7_bdw/GCCcore/9.2.0/lib64:/opt/nesi/CS400_centos7_bdw/GCCcore/9.2.0/lib
+
+       """
+
+     [[Python_conda]]
+       inherit = Maui_Anc_prepost
+       pre-script = """
+             set +u
+             module load Miniforge3
+             source $(conda info --base)/etc/profile.d/conda.sh
+             conda activate /nesi/project/niwa03440/conda/envs/geofabrics
+             set -u
+       """
+
+
+    [[read_gpkg]]
+    ## Read the gpkg file to extract domains, injection rids ...
+        inherit = Python_conda
+
+        script="""
+            ## Flood domain
+            python ${PYTHONPATH}ReadGPKG_cylc.py ${GEOPACKAGE} ${BGFLOODDOMAIN} flood $LOCATION geometry
+            ## Rain domain
+            python ${PYTHONPATH}ReadGPKG_cylc.py ${GEOPACKAGE} ${RAINMASK} rain $LOCATION geometry
+            ## Domain (for refinement)
+            python ${PYTHONPATH}ReadGPKG_cylc.py ${GEOPACKAGE} ${DOMAINMASK} domain $LOCATION geometry
+            ## Oceanrids
+            python ${PYTHONPATH}ReadGPKG_cylc.py ${GEOPACKAGE} ${CYLC_WORKFLOW_RUN_DIR}/oceanrids.txt basin $LOCATION rec2term
+            ## Injectionrids
+            python ${PYTHONPATH}ReadGPKG_cylc.py ${GEOPACKAGE} $INJECTION domain $LOCATION injection
+            ## EVA_RIDS
+            python ${PYTHONPATH}ReadGPKG_cylc.py ${GEOPACKAGE} ${CYLC_WORKFLOW_RUN_DIR}/EVA_rids.txt crude $LOCATION eva_rec2s
+
+            ## OUTLET
+            python ${PYTHONPATH}ReadGPKG_cylc.py ${GEOPACKAGE} ${CYLC_WORKFLOW_RUN_DIR}/Outlet_rids.txt crude $LOCATION outlets
+        """
+
+
+    [[prep_rain]]
+        inherit = Maui_Anc_prepost
+        script="""
+            module load GMT/5.4.5-GCC-7.1.0
+            module load NCO/4.7.5-GCC-7.1.0
+
+            #cp ${RAINMASK} rainmask.json
+
+            ogr2ogr -f "OGR_GMT" ${CYLC_WORKFLOW_RUN_DIR}/rainmask.gmt ${RAINMASK}
+
+            REFTIME=`awk '{if(NR==2){print($0)}}' ${CYLC_WORKFLOW_RUN_DIR}/reftime.txt`
+
+            MaskRain $RAININ ${CYLC_WORKFLOW_RUN_DIR}/rainmask.gmt $RAINOUT ${REFTIME}
+        """
+
+    [[prep_raintime]]
+        inherit = Maui_Anc_JULIA
+
+        script ="""
+
+	       julia --project=${JULIAPROJ} -e "include(\"${CYLC_WORKFLOW_RUN_DIR}/bin/BG_cylc/src/gettide.jl\"); Puttimeatt(ARGS[1],ARGS[2])" $RAINOUT ${CYLC_WORKFLOW_RUN_DIR}/reftime.txt
+        """
+    [[prep_roughness]]
+        inherit = Maui_Anc_GMT
+
+        script="""
+            gmt grdmath ${ROUGHNESSFILE} 0.04 DENAN 0.01 MAX = ${CYLC_WORKFLOW_RUN_DIR}/Roughness.nc?zo
+        """
+
+
+    [[prep_elevation]]
+        inherit = Maui_Anc_GMT
+
+        script="""
+            gmt grdmath ${GEOFABRICFILE}?z -50.0 DENAN -50.0 MAX = ${DEMFILE}?z
+            #gmt grdsample ${BATHTYFIX} -R${GEOFABRICFILE}?z -Gbathyfix_bathyonly.nc
+            #gmt grdmath ${GEOFABRICFILE}?data_source 2 NEQ 0 NAN ${GEOFABRICFILE}?z MUL bathyfix_bathyonly.nc DENAN -50.0 DENAN -50.0 MAX = ${CYLC_WORKFLOW_RUN_DIR}/Elevation.nc?z
+        """
+
+
+
+    [[prep_injection]]
+        inherit = Maui_Anc_GMT
+
+        script="""
+            {% if GEOPACKAGE is defined and GEOPACKAGE|length %}
+
+            ogr2ogr -f "OGR_GMT" ${CYLC_WORKFLOW_RUN_DIR}/domain.gmt ${DOMAIN}
+            #grep @D ${CYLC_WORKFLOW_RUN_DIR}/domain.gmt | sed 's/# @D//g' | awk 'BEGIN{FS=",";RS="|"}{if(NR==5){print($0)}}' | awk 'BEGIN{RS=","}{print($1)}' >  ${INJECTION}
+
+            {% endif %}
+        """
+
+
+    [[Get_injectionXY]]
+       inherit = Maui_Anc_JULIA
+
+        script="""
+            srun julia --project=${JULIAPROJ} -e "include(\"${CYLC_WORKFLOW_RUN_DIR}/bin/BG_cylc/src/GetTopNet.jl\"); GetInjectionXY(ARGS[1],ARGS[2],outfolder=ARGS[3])" ${TOPNETFOLDER}/ ${INJECTION} ${CYLC_WORKFLOW_RUN_DIR}/
+        """
+
+    [[Get_EVA_XY]]
+       inherit = Maui_Anc_JULIA
+
+        script="""
+        srun julia --project=${JULIAPROJ} -e "include(\"${CYLC_WORKFLOW_RUN_DIR}/bin/BG_cylc/src/GetTopNet.jl\"); GetInjectionXY(ARGS[1],ARGS[2],outfolder=ARGS[3], outfile=ARGS[4])" ${TOPNETFOLDER}/ ${CYLC_WORKFLOW_RUN_DIR}/EVA_rids.txt ${CYLC_WORKFLOW_RUN_DIR}/ EVA_XY.txt
+
+        """
+
+
+    [[proj_injection]]
+        inherit = Maui_Anc_GMT
+
+        script="""
+            #ogr2ogr -f "OGR_GMT" ${CYLC_WORKFLOW_RUN_DIR}/domain.gmt ${DOMAIN}
+            #grep @D ${CYLC_WORKFLOW_RUN_DIR}/domain.gmt | sed 's/# @D//g' | awk 'BEGIN{FS=",";RS="|"}{if(NR==5){print($0)}}' | awk 'BEGIN{RS=","}{print($1)}' >  ${INJECTION}
+
+            #srun julia --project=${JULIAPROJ} -e "using BG_cylc; GetInjectionXY(ARGS[1],ARGS[2],outfolder=ARGS[3])" ${TOPNETSTREAMQ} ${INJECTION} ${CYLC_WORKFLOW_RUN_DIR}/
+
+            gmt mapproject -Jt173/0/1:1 -C1600000/10000000 --PROJ_ELLIPSOID=GRS-80 --PROJ_SCALE_FACTOR=0.9996 -F -R170/180/-50/-30 ${CYLC_WORKFLOW_RUN_DIR}/Injection_XY.txt -i1,2,0,3 -o2,0,1,3 | awk '{printf("%d,%2.2f,%2.2f,rid_%s\n",$1,$2,$3,$4)}' > ${INJECTION}
+
+            #rm ${INJECTION}
+            #cp ${CYLC_WORKFLOW_RUN_DIR}/Injection_XY.txt ${INJECTION}
+        """
+
+
+    [[proj_EVA]]
+        inherit = Maui_Anc_GMT
+
+        script="""
+            gmt mapproject -Jt173/0/1:1 -C1600000/10000000 --PROJ_ELLIPSOID=GRS-80 --PROJ_SCALE_FACTOR=0.9996 -F -R170/180/-50/-30 ${CYLC_WORKFLOW_RUN_DIR}/EVA_XY.txt -i1,2,0,3 -o2,0,1,3 | awk '{printf("%d,%2.2f,%2.2f,rid_%s\n",$1,$2,$3,$4)}' > ${CYLC_WORKFLOW_RUN_DIR}/EVA_XY_proj.txt
+        """
+
+
+    [[make_injection]]
+        inherit = Maui_Anc_JULIA
+
+        script ="""
+
+               julia --project=${JULIAPROJ} -e "include(\"${CYLC_WORKFLOW_RUN_DIR}/bin/BG_cylc/src/GetTopNet.jl\"); GetTopNetPeakref(ARGS[1],ARGS[2],ARGS[3])" ${TOPNETFOLDER}/ ${CYLC_WORKFLOW_RUN_DIR}/oceanrids.txt ${CYLC_WORKFLOW_RUN_DIR}/reftime.txt
+
+
+
+               julia --project=${JULIAPROJ} -e "include(\"${CYLC_WORKFLOW_RUN_DIR}/bin/BG_cylc/src/GetTopNet.jl\"); GetTopNetFlow(ARGS[1],ARGS[2],outfolder=ARGS[3])" ${TOPNETFOLDER}/ ${INJECTION} ${CYLC_WORKFLOW_RUN_DIR}/
+        """
+
+
+
+    [[prep_tide_old]]
+        inherit = Maui_Anc_JULIA
+
+        script ="""
+           #LON=`awk '{if(NR==14){print($1)}}' $INFOFILE`
+           #LAT=`awk '{if(NR==14){print($2)}}' $INFOFILE`
+
+
+	       srun julia --project=${JULIAPROJ} -e "include(\"${CYLC_WORKFLOW_RUN_DIR}/bin/BG_cylc/src/gettide.jl\"); predictNZtides(parse(Float64, ARGS[1]),parse(Float64,ARGS[2]),ARGS[3],tidemodelfile=ARGS[4])" ${NZTMX} ${NZTMY} ${CYLC_WORKFLOW_RUN_DIR}/tide_TMP.txt ${TIDESURF}
+        """
+
+        [[[directives]]]
+             --mem=16GB
+
+
+    [[prep_tidebnd]]
+        inherit = Maui_Anc_GMT
+
+        script="""
+            # Only do the tide for non-landlocked domain. Landlocked domain have Outlet_rids.txt
+            if [ -s ${CYLC_WORKFLOW_RUN_DIR}/Outlet_rids.txt ]; then
+             echo "This is a Landlock domain"
+             cat ${CYLC_WORKFLOW_RUN_DIR}/Outlet_rids.txt
+            else
+            ogr2ogr -f "OGR_GMT" ${CYLC_WORKFLOW_RUN_DIR}/domain.gmt ${BGFLOODDOMAIN}
+
+            gmt gmtspatial -Q ${CYLC_WORKFLOW_RUN_DIR}/domain.gmt > polysize.tmp
+
+            idlargestpoly=`awk 'BEGIN{maxsize=0; LP=0;}{if($3>maxsize){maxsize=$3; LP=NR}}END{printf("%d",LP)}' polysize.tmp`
+
+            awk -v polyid=$idlargestpoly 'BEGIN{ispoly=0;thispoly=0}{if($1!="#"){if($1==">"){thispoly=thispoly+1; if(thispoly==polyid){ispoly=1}else{ispoly=0}}else{if(ispoly==1){print($0)}}}}' ${CYLC_WORKFLOW_RUN_DIR}/domain.gmt  > ${CYLC_WORKFLOW_RUN_DIR}/aoi_BGFLOOD.txt
+
+
+            gmt sample1d -Fl -T100.0c ${CYLC_WORKFLOW_RUN_DIR}/aoi_BGFLOOD.txt | gmt grdtrack -G${DEMFILE}?z | awk '{if($1!=">"){if($3<-1.0){print($1,$2,$3)}}}' | gmt gmtspatial -i0,1 -Sb1064 | gmt gmtspatial -R${DEMFILE}?z -C > ${CYLC_WORKFLOW_RUN_DIR}/tidebnd_tmp.bnd
+
+            # Cyp added this to avoid issues when NaNs are generated in the process above
+            awk 'BEGIN{nandetected=0}{if($1=="NaN"){nandetected=1};if(nandetected==0){print($0)}else{}}' ${CYLC_WORKFLOW_RUN_DIR}/tidebnd_tmp.bnd > ${TIDEBDNPOLY}
+
+            gmt gmtinfo -Ib10 -Ve ${CYLC_WORKFLOW_RUN_DIR}/domain.gmt | gmt grdtrack -G${DEMFILE} | gmt gmtinfo -El2 -o0,1 > ${CYLC_WORKFLOW_RUN_DIR}/tideinfo.txt
+            fi
+
+        """
+
+    [[prep_tide]]
+        inherit = Maui_Anc_JULIA
+
+        script ="""
+            # Only do the tide for non-landlocked domain. Landlocked domain have Outlet_rids.txt
+           if [ -s ${CYLC_WORKFLOW_RUN_DIR}/Outlet_rids.txt ]; then
+                echo "This is a Landlock domain"
+                cat ${CYLC_WORKFLOW_RUN_DIR}/Outlet_rids.txt
+           else
+                REG=`awk '{if(NR==1){print($1)}}' $INFOFILE`
+                NZTMX=`awk '{if(NR==1){print($1)}}' ${CYLC_WORKFLOW_RUN_DIR}/tideinfo.txt`
+                NZTMY=`awk '{if(NR==1){print($2)}}' ${CYLC_WORKFLOW_RUN_DIR}/tideinfo.txt`
+                LAT=`awk '{if(NR==13){print($2)}}' $INFOFILE`
+
+                #REFTIME=`julia --project=${JULIAPROJ} -e "include(\"${CYLC_WORKFLOW_RUN_DIR}/bin/BG_cylc/src/GetTopNet.jl\"); GetTopNetPeakref(ARGS[1],ARGS[2])" ${TOPNETFOLDER}/ ${CYLC_WORKFLOW_RUN_DIR}/oceanrids.txt`
+                REFTIME=`awk '{if(NR==1){print($0)}}' ${CYLC_WORKFLOW_RUN_DIR}/reftime.txt`
+                echo ${REFTIME}
+
+                #echo "${REG} ${NZTMX} ${NZTMY} ${TIDEFILE} ${TIDESURF} ${LAT}"
+                julia --project=${JULIAPROJ} -e "include(\"${CYLC_WORKFLOW_RUN_DIR}/bin/BG_cylc/src/gettide.jl\"); predictMaptide(parsetuple(ARGS[1]),500.0,parse(Float64,ARGS[2]),parse(Float64,ARGS[3]),ARGS[4],tidemodelfile=ARGS[5],reflat=parse(Float64,ARGS[6]),reftimestr=ARGS[7])" ${REG} ${NZTMX} ${NZTMY} ${TIDEFILE} ${TIDESURF} ${LAT} ${REFTIME}
+            fi
+        """
+
+        [[[directives]]]
+             --mem=16GB
+
+
+    [[synch_tide]]
+        inherit = Python_conda
+        script = """
+               #python ${PYTHONPATH}phase_tide_max_flood.py ${TOPNETFOLDER} ${CYLC_WORKFLOW_RUN_DIR}/oceanrids.txt ${CYLC_WORKFLOW_RUN_DIR}/tide_TMP.txt $TIDEFILE $INFOFILE
+         """
+
+	[[prep_lake]]
+		         inherit = Maui_Anc_JULIA
+
+		         script ="""
+		             # Only do the tide for non-landlocked domain. Landlocked domain have Outlet_rids.txt
+		             #echo "${REG} ${NZTMX} ${NZTMY} ${TIDEFILE} ${TIDESURF} ${LAT}"
+                     REG=`awk '{if(NR==1){print($1)}}' $INFOFILE`
+		             julia --project=${JULIAPROJ} -e "include(\"${CYLC_WORKFLOW_RUN_DIR}/bin/BG_cylc/src/GetLake.jl\"); extractLakes(parsetuple(ARGS[1]),ARGS[2],infofile=ARGS[3],outfolder=ARGS[4])" ${REG} ${LAKEFILE} ${CYLC_WORKFLOW_RUN_DIR}/mylakes.txt ${CYLC_WORKFLOW_RUN_DIR}/
+		           
+		         """
+
+    [[prep_lake_bnd]]
+                inherit = Maui_Anc_GMT
+
+                script = """
+                file=${CYLC_WORKFLOW_RUN_DIR}/mylakes.txt
+
+                gmt grdmath ${DEMFILE}?z 0 MUL -1 ADD = ${CYLC_WORKFLOW_RUN_DIR}/hotstartlake.nc?zs
+
+                while IFS= read -r item; do
+                    echo "Processing: $item"
+                    ogr2ogr -f "OGR_GMT" ${CYLC_WORKFLOW_RUN_DIR}/${item}.gmt ${CYLC_WORKFLOW_RUN_DIR}/${item}".geojson"
+#
+                    gmt grdtrack ${CYLC_WORKFLOW_RUN_DIR}/${item}.gmt -G${DEMFILE}?z -Z | awk '{printf("%f\t%f\t%2.1f\n",0.5,0.5,$1)}' | gmt blockmode -R0/1/0/1 -I0.5 -o2 | awk '{printf("0.0\t%f\n3600000.0\t%f\n",$1,$1)}' > ${CYLC_WORKFLOW_RUN_DIR}/${item}.bnd
+
+                    awk '{if($1!="#" && $1!=">"){printf("%f\t%f\n",$1,$2)}}' ${CYLC_WORKFLOW_RUN_DIR}/${item}.gmt > ${CYLC_WORKFLOW_RUN_DIR}/${item}_poly.txt
+
+                    LAKELEVEL=`awk '{if(NR==1){printf("%f",$2)}}' ${CYLC_WORKFLOW_RUN_DIR}/${item}.bnd`
+
+                   gmt grdmask -R${CYLC_WORKFLOW_RUN_DIR}/hotstartlake.nc ${CYLC_WORKFLOW_RUN_DIR}/${item}.gmt -NNaN/${LAKELEVEL}/${LAKELEVEL} -GlakeHST.nc
+
+                    gmt grdmath lakeHST.nc ${CYLC_WORKFLOW_RUN_DIR}/hotstartlake.nc DENAN = tmplake.nc?zs
+
+                    mv tmplake.nc ${CYLC_WORKFLOW_RUN_DIR}/hotstartlake.nc
+
+                done < "$file"
+
+                gmt grdmath ${CYLC_WORKFLOW_RUN_DIR}/hotstartlake.nc?zs ${DEMFILE}?z SUB 0 MAX = ${CYLC_WORKFLOW_RUN_DIR}/hotstartdepth.nc
+
+                gmt grdmath ${CYLC_WORKFLOW_RUN_DIR}/hotstartdepth.nc 50 GT ${CYLC_WORKFLOW_RUN_DIR}/hotstartdepth.nc 50.0 SUB MUL ${DEMFILE}?z ADD = ${CYLC_WORKFLOW_RUN_DIR}/Filled_Lakes.nc?z
+                
+                # comment line below to leave DEM untouched
+                mv ${CYLC_WORKFLOW_RUN_DIR}/Filled_Lakes.nc ${DEMFILE}
+
+                """
+        [[[directives]]]
+             --mem=48GB
+             --time=2:40:00
+
+    [[Add_Lakes_BG_coarse]]
+        inherit = Maui_Anc_GMT
+
+                script = """
+                file=${CYLC_WORKFLOW_RUN_DIR}/mylakes.txt
+
+                printf "hotstartfile = %s\n" ${CYLC_WORKFLOW_RUN_DIR}/hotstartlake.nc >> ${OUTFOLDER}${BGPARAM_COARSE}
+
+
+                while IFS= read -r item; do
+                    #
+                    printf "bndseg = %s,%s,3;\n" ${CYLC_WORKFLOW_RUN_DIR}/${item}_poly.txt ${CYLC_WORKFLOW_RUN_DIR}/${item}.bnd >> ${OUTFOLDER}${BGPARAM_COARSE}
+                done < "$file"
+                """
+
+    [[Add_Lakes_BG_fine]]
+        inherit = Maui_Anc_GMT
+
+                script = """
+                file=${CYLC_WORKFLOW_RUN_DIR}/mylakes.txt
+
+                printf "hotstartfile = %s\n" ${CYLC_WORKFLOW_RUN_DIR}/hotstartlake.nc >> ${OUTFOLDER}${BGPARAM_THIN}
+
+
+                while IFS= read -r item; do
+                    #
+                    printf "bndseg = %s,%s,3;\n" ${CYLC_WORKFLOW_RUN_DIR}/${item}_poly.txt ${CYLC_WORKFLOW_RUN_DIR}/${item}.bnd >> ${OUTFOLDER}${BGPARAM_THIN}
+
+                    gmt grdmask -R${TARGETEV} ${CYLC_WORKFLOW_RUN_DIR}/${item}_poly.txt -N1/1/0 -G${CYLC_WORKFLOW_RUN_DIR}/${item}_outmask.nc
+
+                    gmt grdmath ${CYLC_WORKFLOW_RUN_DIR}/${item}_outmask.nc ${TARGETEV} MUL = ${CYLC_WORKFLOW_RUN_DIR}/temp_target.nc
+
+                    mv ${CYLC_WORKFLOW_RUN_DIR}/temp_target.nc ${TARGETEV}
+
+                done < "$file"
+                """
+
+
+    [[prep_info]]
+        inherit = Maui_Anc_GMT
+
+        script = """
+
+            ogr2ogr -f "OGR_GMT" ${CYLC_WORKFLOW_RUN_DIR}/domain.gmt ${BGFLOODDOMAIN}
+
+            gmt gmtspatial -Q ${CYLC_WORKFLOW_RUN_DIR}/domain.gmt > polysize.tmp
+
+            idlargestpoly=`awk 'BEGIN{maxsize=0; LP=0;}{if($3>maxsize){maxsize=$3; LP=NR}}END{printf("%d",LP)}' polysize.tmp`
+
+            awk -v polyid=$idlargestpoly 'BEGIN{ispoly=0;thispoly=0}{if($1!="#"){if($1==">"){thispoly=thispoly+1; if(thispoly==polyid){ispoly=1}else{ispoly=0}}else{if(ispoly==1){print($0)}}}}' ${CYLC_WORKFLOW_RUN_DIR}/domain.gmt  > ${CYLC_WORKFLOW_RUN_DIR}/aoi_BGFLOOD.txt
+
+
+            #REFTIME=`awk '{if(NR==3){print($0)}}' ${CYLC_WORKFLOW_RUN_DIR}/reftime.txt`
+			### Get domain's bounds from domain.gmt and correct the values to superimpose with the DEM's grid
+            ##DEMFILE=${CYLC_WORKFLOW_RUN_DIR}/Elevation.nc
+
+            XMINI=$(gmt gmtinfo -I10 -C -Ve ${CYLC_WORKFLOW_RUN_DIR}/domain.gmt | awk '{printf("%2.2f\n",$1)}')
+            XMAXI=$(gmt gmtinfo -I10 -C -Ve ${CYLC_WORKFLOW_RUN_DIR}/domain.gmt | awk '{printf("%2.2f\n",$2)}')
+            YMINI=$(gmt gmtinfo -I10 -C -Ve ${CYLC_WORKFLOW_RUN_DIR}/domain.gmt | awk '{printf("%2.2f\n",$3)}')
+            YMAXI=$(gmt gmtinfo -I10 -C -Ve ${CYLC_WORKFLOW_RUN_DIR}/domain.gmt | awk '{printf("%2.2f\n",$4)}')
+
+            XMIN_DEM=$(gmt grdinfo ${DEMFILE} | grep "x_min" | awk -F"x_min: | x_max: | x_inc: | name:" '{print $2}')
+            DX_DEM=$(  gmt grdinfo ${DEMFILE} | grep "x_min" | awk -F"x_min: | x_max: | x_inc: | name:" '{print $4}')
+            YMIN_DEM=$(gmt grdinfo ${DEMFILE} | grep "y_min" | awk -F"y_min: | y_max: | y_inc: | name:" '{print $2}')
+            DY_DEM=$(  gmt grdinfo ${DEMFILE} | grep "y_min" | awk -F"y_min: | y_max: | y_inc: | name:" '{print $4}')
+
+            XMIN=$(echo "$XMIN_DEM + ((($XMINI - $XMIN_DEM)/$DX_DEM)/1    )*$DX_DEM - $DX_DEM/2" | bc)
+            XMAX=$(echo "$XMIN     + ((($XMAXI - $XMIN    )/$DX)/1 + 1)*$DX                    " | bc)
+            YMIN=$(echo "$YMIN_DEM + ((($YMINI - $YMIN_DEM)/$DY_DEM)/1    )*$DY_DEM - $DY_DEM/2" | bc)
+            YMAX=$(echo "$YMIN     + ((($YMAXI - $YMIN    )/$DX)/1 + 1)*$DX                    " | bc)
+
+            REG="${XMIN}.0,${XMAX}.0,${YMIN}.0,${YMAX}.0"
+			###
+
+            ### Start creation info file
+            if [ -f $INFOFILE ] # First check if file exist and delete it if so
+            then
+                rm $INFOFILE
+            fi
+
+#            gmt gmtinfo -I10 -C -Ve ${CYLC_WORKFLOW_RUN_DIR}/domain.gmt | awk '{printf("%2.2f,%2.2f,%2.2f,%2.2f\n",$1,$2,$3,$4)}' > $INFOFILE
+            echo ${REG} > $INFOFILE
+            echo ${DX} >> $INFOFILE
+            #echo $GEOFABRICFILE >> $INFOFILE
+            echo ${DEMFILE} >> $INFOFILE
+            #echo $ROUGHNESSFILE >> $INFOFILE
+            echo ${CYLC_WORKFLOW_RUN_DIR}/Roughness.nc >> $INFOFILE
+            echo  ${CYLC_WORKFLOW_RUN_DIR}/aoi_BGFLOOD.txt >> $INFOFILE
+            printf "%s%s\n"  $RAINOUT ?depth >> $INFOFILE
+            echo $INJECTION >> $INFOFILE
+            echo $INJECTIONFOLDER >> $INFOFILE
+            echo $LEVELS >> $INFOFILE
+            echo $TARGETEV >> $INFOFILE
+            echo $TIDEFILE >> $INFOFILE
+            echo $BGOUTFILE >> $INFOFILE
+
+
+            # Get lon lat from deepest corner
+            gmt gmtinfo -Ib10 -Ve ${CYLC_WORKFLOW_RUN_DIR}/domain.gmt | gmt grdtrack -G${DEMFILE} | gmt gmtinfo -El2 -o0,1 | gmt mapproject -Jt173/0/1:1 -C1600000/10000000 --PROJ_ELLIPSOID=GRS-80 --PROJ_SCALE_FACTOR=0.9996 -F -R170/180/-50/-30 -I >> $INFOFILE
+            #  gmt mapproject -Jt173/0/1:1 -C1600000/10000000 --PROJ_ELLIPSOID=GRS-80 --PROJ_SCALE_FACTOR=0.9996 -F -R170/180/-50/-30
+            #gmt gmtinfo -Ib10 -Ve ${CYLC_WORKFLOW_RUN_DIR}/domain.gmt |  gmt mapproject -Jt173/0/1:1 -C1600000/10000000 --PROJ_ELLIPSOID=GRS-80 --PROJ_SCALE_FACTOR=0.9996 -F -R170/180/-50/-30 -I | gmt gmtinfo -I0.001 -C >> $INFOFILE
+
+            # Timepeak
+            awk '{if(NR==1){print($0)}}' ${CYLC_WORKFLOW_RUN_DIR}/reftime.txt >> $INFOFILE
+
+            # referencetime
+            awk '{if(NR==3){print($0)}}' ${CYLC_WORKFLOW_RUN_DIR}/reftime.txt >> $INFOFILE
+            awk '{if(NR==4){print($0)}}' ${CYLC_WORKFLOW_RUN_DIR}/reftime.txt >> $INFOFILE
+            # Only do the tide for non-landlocked domain. Landlocked domain have Outlet_rids.txt
+            if [ -s ${CYLC_WORKFLOW_RUN_DIR}/Outlet_rids.txt ]; then
+                echo "" >> $INFOFILE
+            else
+                echo ${TIDEBDNPOLY} >> $INFOFILE
+            fi
+
+            # Init Sea level and Sea level rise
+            echo ${ZS_INIT} >> $INFOFILE
+            echo ${SLR} >> $INFOFILE
+
+
+     """
+
+
+    [[prep_param_coarse]]
+        inherit = Maui_Anc_JULIA
+
+        script ="""
+               julia --project=${JULIAPROJ} -e "include(\"${CYLC_WORKFLOW_RUN_DIR}/bin/BG_cylc/src/makBGparam.jl\"); MakBGParam(ARGS[1],ARGS[2],coarse=true)" $INFOFILE ${OUTFOLDER}${BGPARAM_COARSE}
+	       """
+
+    [[prep_param_fine]]
+        inherit = Maui_Anc_JULIA
+
+        script ="""
+                julia --project=${JULIAPROJ} -e "include(\"${CYLC_WORKFLOW_RUN_DIR}/bin/BG_cylc/src/makBGparam.jl\"); MakBGParam(ARGS[1],ARGS[2],coarse=false)" $INFOFILE ${OUTFOLDER}${BGPARAM_THIN}
+	       """
+
+  ## OLD version
+  # [[prep_targetrefine]]
+  #      inherit = Maui_Anc_GMT
+  #
+  #      script = """
+  #
+  #          #laststep=`ncdump -h ${BGOUTFILE} | grep "time =" |awk 'BEGIN{FS="("}{split($2,a," ");printf("%d",a[1]-1)}'`
+  #          #gmt grdgradient ${BGOUTFILE}?zs_P0[1] -D -S${CYLC_WORKFLOW_RUN_DIR}/slopes.nc
+  #          #gmt grdmath ${CYLC_WORKFLOW_RUN_DIR}/slopes.nc 0.1 LT ${BGOUTFILE}?hmax_P0[${laststep}] 0.1 GT MUL ${BGOUTFILE}?zs_P0[1] 0.01 GT MUL 0 DENAN 3 MUL = ${TARGETEV}
+  #
+  #          srun MakeTargetAdapt ${BGOUTFILE} ${GEOFABRICFILE} ${TARGETEV}
+  #          """
+
+    [[prep_targetrefine]]
+        inherit = Python_conda
+
+        script = """
+            python ${PYTHONPATH}refinement.py ${BGOUTFILE}_coarse.nc ${STOPBANKS} {{inputs.OUTPUT_DIR}}/{{LOC}}/${GEOFABRIC_RESO}m_geofabric.nc ${DOMAINMASK} ${TARGETEV} ${OUTFOLDER}
+        """
+        [[[directives]]]
+             --time=4:00:00
+             --mem=48GB
+
+
+    [[Check_Compile]]
+        inherit = Maui_Anc_prepost
+
+        script ="""
+            localTag=$(<${CYLC_WORKFLOW_RUN_DIR}/bin/BG_Flood-version.txt)
+            if [ {{inputs.GPU_SRC}} == 'Maui' ]; then
+                compilehost='Maui'
+            else
+                compilehost='Mahuika'
+            fi
+            exec=${CYLC_WORKFLOW_RUN_DIR}/bin/BG_Flood_${compilehost}
+            if [ ! -f $exec ] || [ {{inputs.BGFLOOD_TAG}} != $localTag ]; then
+                echo "BG_Flood executable will be re-generated"
+                cylc__job_abort "ERROR: BG_Flood executable not found or different version, the executable will be regenerated."
+            else
+                echo "Use of BG_Flood executable from repo"
+
+            fi
+        """
+
+##BG_Flood run on Maui
+    [[Compile_BG_Maui]]
+        inherit = Maui_Anc_BG_Compile
+
+        script ="""
+            git clone --depth 1 --branch {{inputs.BGFLOOD_TAG}} https://github.com/CyprienBosserelle/BG_Flood.git
+            cd ./BG_Flood/
+            make
+            cp BG_Flood ${CYLC_WORKFLOW_RUN_DIR}/bin/BG_Flood_Maui
+        """
+        [[[directives]]]
+             --time=0:30:00
+
+    [[Run_BG_coarse_Maui]]
+        inherit = Maui_Anc_BG
+        execution time limit = PT24H
+        script ="""
+            ${CYLC_WORKFLOW_RUN_DIR}/bin/BG_Flood_Maui ${OUTFOLDER}${BGPARAM_COARSE}
+        """
+        [[[directives]]]
+             --time=24:00:00
+
+    [[Run_BG_fine_Maui]]
+        inherit = Maui_Anc_BG
+        execution time limit = PT72H
+        script ="""
+            ${CYLC_WORKFLOW_RUN_DIR}/bin/BG_Flood_Maui ${OUTFOLDER}${BGPARAM_THIN}
+        """
+        [[[directives]]]
+             --time=72:00:00
+
+
+
+##BG_Flood run on Maui visu nodes
+    [[Compile_BG_Maui_visu]]
+        inherit = Maui_Anc_BG_Compile
+
+        script ="""
+            git clone --depth 1 --branch {{inputs.BGFLOOD_TAG}} https://github.com/CyprienBosserelle/BG_Flood.git
+            cd ./BG_Flood/
+            make
+            cp BG_Flood ${CYLC_WORKFLOW_RUN_DIR}/bin/BG_Flood_Maui
+        """
+        [[[directives]]]
+             --time=0:30:00
+
+    [[Run_BG_coarse_Maui_visu]]
+        inherit = Maui_Anc_BG_visu
+        execution time limit = PT24H
+        script ="""
+            ${CYLC_WORKFLOW_RUN_DIR}/bin/BG_Flood_Maui ${OUTFOLDER}${BGPARAM_COARSE}
+        """
+        [[[directives]]]
+             --time=24:00:00
+
+    [[Run_BG_fine_Maui_visu]]
+        inherit = Maui_Anc_BG_visu
+        execution time limit = PT72H
+        script ="""
+            ${CYLC_WORKFLOW_RUN_DIR}/bin/BG_Flood_Maui ${OUTFOLDER}${BGPARAM_THIN}
+        """
+        [[[directives]]]
+             --time=72:00:00
+
+
+
+
+
+
+##BG_Flood run on Mahuika hgx and gpu partitions
+    [[Compile_BG_Mahuika]]
+        inherit = Mahuika_BG_Compile
+
+        script ="""
+            git clone --depth 1 --branch {{inputs.BGFLOOD_TAG}} https://github.com/CyprienBosserelle/BG_Flood.git
+            cd ./BG_Flood/
+            make
+            cp BG_Flood ${CYLC_WORKFLOW_RUN_DIR}/bin/BG_Flood_Mahuika
+        """
+        [[[directives]]]
+             --time=0:20:00
+
+    [[Run_BG_coarse_Mahuika]]
+        inherit = Mahuika_BG
+        execution time limit = PT4H
+        script ="""
+            ${CYLC_WORKFLOW_RUN_DIR}/bin/BG_Flood_Mahuika ${OUTFOLDER}${BGPARAM_COARSE}
+        """
+        [[[directives]]]
+             --time=5:00:00
+
+    [[Run_BG_fine_Mahuika]]
+        inherit = Mahuika_BG
+        execution time limit = PT72H
+        script ="""
+            ${CYLC_WORKFLOW_RUN_DIR}/bin/BG_Flood_Mahuika ${OUTFOLDER}${BGPARAM_THIN}
+        """
+        [[[directives]]]
+             --time=72:00:00
+
+##BG_Flood run on new NIWA GPU on Milan. somehow the export for Milan is not sufficient for compiling so here we enfore compile of Milan to happen in the Mahuika context
+
+    [[Compile_BG_Milan]]
+        inherit = Milan_Compile_BG
+
+        script ="""
+            git clone --depth 1 --branch {{inputs.BGFLOOD_TAG}} https://github.com/CyprienBosserelle/BG_Flood.git
+            cd ./BG_Flood/
+            make
+            cp BG_Flood ${CYLC_WORKFLOW_RUN_DIR}/bin/BG_Flood_Mahuika
+        """
+        [[[directives]]]
+             --time=0:20:00
+
+    [[Run_BG_coarse_Milan]]
+        inherit = Milan_BG
+        execution time limit = PT24H
+        script ="""
+            ${CYLC_WORKFLOW_RUN_DIR}/bin/BG_Flood_Mahuika ${OUTFOLDER}${BGPARAM_COARSE}
+        """
+        [[[directives]]]
+             --time=24:00:00
+
+    [[Run_BG_fine_Milan]]
+        inherit = Milan_BG
+        execution time limit = PT72H
+        script ="""
+            ${CYLC_WORKFLOW_RUN_DIR}/bin/BG_Flood_Mahuika ${OUTFOLDER}${BGPARAM_THIN}
+        """
+        [[[directives]]]
+             --time=72:00:00
+
+##BG_Flood run on new NIWA GPU on Milan, only a slice of it (1/8th). Somehow the export for Milan is not sufficient for compiling so here we enfore compile of Milan to happen in the Mahuika context
+
+    [[Compile_BG_MilanSlice]]
+        inherit = Milan_Compile_BG
+
+        script ="""
+            git clone --depth 1 --branch {{inputs.BGFLOOD_TAG}} https://github.com/CyprienBosserelle/BG_Flood.git
+            cd ./BG_Flood/
+            make
+            cp BG_Flood ${CYLC_WORKFLOW_RUN_DIR}/bin/BG_Flood_Mahuika
+        """
+        [[[directives]]]
+             --time=0:20:00
+
+    [[Run_BG_coarse_MilanSlice]]
+        inherit = MilanSlice_BG
+        execution time limit = PT24H
+        script ="""
+            hostname
+            echo $CUDA_VISIBLE_DEVICES
+            nvidia-smi -L
+            ${CYLC_WORKFLOW_RUN_DIR}/bin/BG_Flood_Mahuika ${OUTFOLDER}${BGPARAM_COARSE}
+        """
+        [[[directives]]]
+             --time=24:00:00
+
+    [[Run_BG_fine_MilanSlice]]
+        inherit = MilanSlice_BG
+        execution time limit = PT72H
+        script ="""
+            ${CYLC_WORKFLOW_RUN_DIR}/bin/BG_Flood_Mahuika ${OUTFOLDER}${BGPARAM_THIN}
+        """
+        [[[directives]]]
+             --time=72:00:00
+
+
+
+
+    [[PlotFlood]]
+        inherit = Maui_Anc_prepost
+        env-script="""
+            #module load GMT/5.4.5-GCC-7.1.0
+            module load GMT/6.4.0-GCC-7.1.0
+        """
+
+        script="""
+            regionplot=`awk '{if(NR==1){split($1,r,",");printf("%2.2f/%2.2f/%2.2f/%2.2f",r[1],r[2],r[3],r[4])}}' $INFOFILE`
+            cd $CYLC_WORKFLOW_RUN_DIR/bin
+            Plot_flood $INFOFILE $BGOUTFILE
+        """
+
+
+
+    [[sanity_checks]]
+        inherit = Maui_Anc_prepost
+
+        env-script="""
+             module purge
+             module load slurm NeSI
+             module load Anaconda3
+        """
+        script="""
+               set +eu
+               source $(conda info --base)/etc/profile.d/conda.sh
+               conda activate /nesi/project/niwa03440/conda/envs/geocat
+
+               # Create sanity_checks_input.txt
+               if [[ ! -d ${OUTFOLDER}sanity_checks ]]; then
+                  mkdir ${OUTFOLDER}sanity_checks
+               fi
+
+
+               v1=hmax # Hmax
+               out1=5 # v1 outlier definition (plot when value is exceeded)
+               v2=Fr # Fr
+               out2=5 # v2 outlier definition (plot when value is exceeded)
+               # sanity_checks_input.txt
+               #
+
+
+               # initial time, initial layer, initial variable, no of variables to analysis, variable to analyse, outlier upper criteria
+               # ie '0\n0\n0\n2\nhmax\n5\nzmax\n100\n' will analyse the hmax variable with an outlier limit of 5 and zmax with an outlier limit of 100
+               printf '0\n0\n0\n1\nhmax\n5\n' > ${OUTFOLDER}sanity_checks/sanity_checks_input.txt
+
+               GeoFabricsF=${GEOFABRICFILE%?z}
+
+
+               # Plot boxplots
+               python ${PYTHONPATH}sanity_checks.py ${BGOUTFILE}_coarse.nc ${BGOUTFILE}.nc $GeoFabricsF ${OUTFOLDER}sanity_checks_input.txt ${OUTFOLDER}sanity_checks 1 0 0
+
+
+               # Plot histograms
+               python ${PYTHONPATH}sanity_checks.py ${BGOUTFILE}_coarse.nc ${BGOUTFILE}.nc $GeoFabricsF ${OUTFOLDER}sanity_checks_input.txt ${OUTFOLDER}sanity_checks 0 1 0
+
+               # Plot outliers
+               while [[ -f ${OUTFOLDER}sanity_checks/sanity_checks_input.txt ]];
+               do
+                    python ${PYTHONPATH}sanity_checks.py ${BGOUTFILE}_coarse.nc ${BGOUTFILE}.nc $GeoFabricsF ${OUTFOLDER}sanity_checks/sanity_checks_input.txt ${OUTFOLDER}sanity_checks 0 0 1
+               done
+
+             # Plot boxplots
+             #printf "0\n0\n0\n2\n$v1\n$out1\n$v2\n$out2\n" > ${OUTFOLDER}sanity_checks/sanity_checks_input.txt
+             #while [[ -f ${OUTFOLDER}sanity_checks/sanity_checks_input.txt ]];
+             #do
+             #  python ${CYLC_WORKFLOW_RUN_DIR}/bin/sanity_checks.py ${CYLC_WORKFLOW_RUN_DIR}/BGout.nc ${CYLC_WORKFLOW_RUN_DIR}/BGout_1.nc ${GEOFABRICFILE} ${OUTFOLDER}sanity_checks/sanity_checks_input.txt ${OUTFOLDER}sanity_checks 1 0 0
+             #done
+
+             # Plot histograms
+             #if [[ -f ${OUTFOLDER}sanity_checks/log.out ]]; then
+             #   rm ${OUTFOLDER}sanity_checks/log.out
+             #fi
+             #printf "0\n0\n0\n2\n$v1\n$out1\n$v2\n$out2\n" > ${OUTFOLDER}sanity_checks/sanity_checks_input.txt
+             #while [[ -f ${OUTFOLDER}sanity_checks/sanity_checks_input.txt ]];
+             #do
+             #  python ${CYLC_WORKFLOW_RUN_DIR}/bin/sanity_checks.py ${CYLC_WORKFLOW_RUN_DIR}/BGout.nc ${CYLC_WORKFLOW_RUN_DIR}/BGout_1.nc ${GEOFABRICFILE} ${OUTFOLDER}sanity_checks/sanity_checks_input.txt ${OUTFOLDER}sanity_checks 0 1 0
+             #done
+
+             # Plot outliers
+             #if [[ -f ${OUTFOLDER}sanity_checks/log.out ]]; then
+             #   rm ${OUTFOLDER}sanity_checks/log.out
+             #fi
+             #printf "0\n0\n0\n2\n${v1}\n${out1}\n${v2}\n${out2}\n" > ${OUTFOLDER}sanity_checks/sanity_checks_input.txt
+             #while [[ -f ${OUTFOLDER}sanity_checks/sanity_checks_input.txt ]];
+             #do
+             #     python ${CYLC_WORKFLOW_RUN_DIR}/bin/sanity_checks.py ${CYLC_WORKFLOW_RUN_DIR}/BGout.nc ${CYLC_WORKFLOW_RUN_DIR}/BGout_1.nc ${GEOFABRICFILE} ${OUTFOLDER}sanity_checks/sanity_checks_input.txt ${OUTFOLDER}sanity_checks 0 0 1
+             #done
+
+             # Clean
+             #rm ${OUTFOLDER}sanity_checks/freq*.out
+
+             conda deactivate
+             set -eu
+             }
+        """
+        [[[directives]]]
+             --time=12:00:00 #4:00:00
+             --account=niwa03440
+             --partition = nesi_prepost
+             --ntasks=1
+             --cpus-per-task=1
+             --mem=10GB
+
+
+    [[CollapseBG]]
+        inherit = Maui_Anc_JULIA
+
+        script ="""
+               srun julia --project=${JULIAPROJ} -e "include(\"$CYLC_WORKFLOW_RUN_DIR/bin/BG_cylc/src/CollapseBG.jl\"); WriteFlooding(ARGS[1],ARGS[2])" $BGOUTFILE.nc ${BGOUTFILE}_Floodmap
+	       """
+        [[[directives]]]
+             --mem=40GB
+
+    [[CreateTiff]]
+        inherit = Maui_Anc_prepost
+        env-script="""
+            module load GDAL/3.2.3-GCC-7.1.0
+            module load GMT/6.4.0-GCC-7.1.0
+            """
+
+        script ="""
+               gmt grdconvert ${BGOUTFILE}_Floodmap_hmax.nc -GTemp_tiff.tif=gd:GTIFF
+               gdal_translate -a_srs "EPSG:2193" Temp_tiff.tif ${BGOUTFILE}_Floodmap_hmax.tif
+               gmt grdconvert ${BGOUTFILE}_Floodmap_zsmax.nc -GTemp_tiff.tif=gd:GTIFF
+               gdal_translate -a_srs "EPSG:2193" Temp_tiff.tif ${BGOUTFILE}_Floodmap_zsmax.tif
+               gmt grdconvert ${BGOUTFILE}_Floodmap_humax.nc -GTemp_tiff.tif=gd:GTIFF
+               gdal_translate -a_srs "EPSG:2193" Temp_tiff.tif ${BGOUTFILE}_Floodmap_humax.tif
+               gmt grdconvert ${BGOUTFILE}_Floodmap_umax.nc -GTemp_tiff.tif=gd:GTIFF
+               gdal_translate -a_srs "EPSG:2193" Temp_tiff.tif ${BGOUTFILE}_Floodmap_umax.tif
+               rm Temp_tiff.tif
+        """
+
+    [[HydroG_EVA]]
+        inherit = Python_conda
+        script ="""
+               while IFS= read -r line; do
+                    x=$(echo $line | cut -f2 -d,)
+                    y=$(echo $line | cut -f3 -d,)
+                    rid=$(echo $line | cut -f1 -d,)
+
+                    echo "Extracting rid $rid, in location [$x $y]"
+                    ncToTimeseries.sh ${BGOUTFILE}.nc $x $y EVA_TS_$rid.txt
+
+                    python ${PYTHONPATH}Plot_HydroG.py ${CYLC_WORKFLOW_RUN_DIR} EVA_TS_$rid.txt EVA_TS_$rid.png ${LOCATION}_${MODEL_NAME}_EVA-$rid
+
+               done < ${CYLC_WORKFLOW_RUN_DIR}/EVA_XY_proj.txt
+               """
+
+    [[Copy_Results]]
+        inherit = Maui_Anc_prepost
+        script="""
+                if [ ! -d "$OUT_DIR/inputs" ]; then
+                   myfolder=$(echo $OUT_DIR/inputs)
+                   echo $myfolder
+                   mkdir -p -m 2770 $myfolder
+               fi
+
+               # Copy logs
+               cp -r $CYLC_WORKFLOW_RUN_DIR/log $OUT_DIR 2>/dev/null || :
+               cp -r $CYLC_WORKFLOW_RUN_DIR/work $OUT_DIR 2>/dev/null || :
+
+              # Copy select results
+               cp $BGOUTFILE* $OUT_DIR
+               cp $CYLC_WORKFLOW_RUN_DIR/rid_* $OUT_DIR/inputs 2>/dev/null || :
+               cp $CYLC_WORKFLOW_RUN_DIR/BG_param* $OUT_DIR
+               cp $CYLC_WORKFLOW_RUN_DIR/info.txt $OUT_DIR
+               cp $CYLC_WORKFLOW_RUN_DIR/Elevation.nc $CYLC_WORKFLOW_RUN_DIR/aoi_BGFLOOD.txt $OUT_DIR/inputs
+               cp $CYLC_WORKFLOW_RUN_DIR/Roughness.nc $OUT_DIR/inputs
+               cp $CYLC_WORKFLOW_RUN_DIR/outputrain_test.nc $OUT_DIR/inputs
+               cp $CYLC_WORKFLOW_RUN_DIR/Target_refine2.nc $OUT_DIR/inputs 2>/dev/null || :
+               if [ ! -s ${CYLC_WORKFLOW_RUN_DIR}/Outlet_rids.txt ]; then
+                   cp $CYLC_WORKFLOW_RUN_DIR/tide* $OUT_DIR/inputs
+               fi
+               cp $CYLC_WORKFLOW_RUN_DIR/*.png $OUT_DIR
+               cp $CYLC_WORKFLOW_RUN_DIR/EVA_TS_* $OUT_DIR 2>/dev/null || :
+               """
+
+      [[copy_logs]]
+        inherit = Maui_Anc_prepost
+        script = """
+            cp -rf $CYLC_WORKFLOW_RUN_DIR/log $OUT_DIR 2>/dev/null || :
+            cp -r $CYLC_WORKFLOW_RUN_DIR/work $OUT_DIR 2>/dev/null || :
+        """
+
+      [[remove_lock]]
+        inherit = Maui_Anc_prepost
+        script="""
+               if [ -f $LOCK_FILE ]; then rm $LOCK_FILE; fi
+        """
+
+      [[create_fail]]
+        inherit = Maui_Anc_prepost
+        script="""
+            if [ -f $LOCK_FILE ]; then rm $LOCK_FILE; fi
+            touch $FAIL_FILE
+            echo ERROR: Created Failure file. Removed lock file.
+            exit 1
+        """
