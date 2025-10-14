@@ -7,6 +7,8 @@ from .logger import AvgTimer, MessageLogger, get_env_info, get_root_logger, init
 from .misc import check_resume, get_time_str, make_exp_dirs, mkdir_and_rename, scandir, set_random_seed, sizeof_fmt, \
     scandir_SIDD
 from .options import yaml_load
+from .stats_util import cal_percentile, cal_mean_std, cal_log1p, cal_zscore, percentile_clip, load_npy_shape, \
+    load_index_csv, group_by_scenario, cal_stats_on_train, check_required_fields, cal_asinh_p90, destand_to_physical
 
 __all__ = [
     #  color_util.py
@@ -45,5 +47,18 @@ __all__ = [
     'USMSharp',
     'usm_sharp',
     # options
-    'yaml_load'
+    'yaml_load',
+    # stats_util.py
+    'cal_percentile',
+    'cal_mean_std',
+    'cal_log1p',
+    'cal_zscore',
+    'percentile_clip',
+    'load_npy_shape',
+    'load_index_csv',
+    'group_by_scenario',
+    'cal_stats_on_train',
+    'check_required_fields',
+    'cal_asinh_p90',
+    'destand_to_physical'
 ]

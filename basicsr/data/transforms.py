@@ -1,6 +1,7 @@
 import cv2
 import random
 import torch
+import numpy as np
 
 
 def mod_crop(img, scale):
@@ -177,3 +178,59 @@ def img_rotate(img, angle, center=None, scale=1.0):
     matrix = cv2.getRotationMatrix2D(center, angle, scale)
     rotated_img = cv2.warpAffine(img, matrix, (w, h))
     return rotated_img
+
+
+def augment_flood_map(transform_list, *, target_var: str, use_hflip: bool, use_rot: bool,
+                     is_train_phase: bool, idx_coarse: int = 0, idx_fine: int = 1,
+                     idx_asin: int = 6, idx_acos: int = 7):
+    if not is_train_phase:
+        return transform_list
+
+    do_hflip = use_hflip and (random.random() < 0.5)
+    do_vflip = use_rot and (random.random() < 0.5)
+
+    allow_rot90 = (use_rot and target_var == 'h')
+    do_rot90 = allow_rot90 and (random.random() < 0.5)
+
+    def _augment_flood_map(a):
+        if do_hflip:
+            a = np.ascontiguousarray(a[:, ::-1])
+        if do_vflip:
+            a = np.ascontiguousarray(a[::-1, :])
+        if do_rot90:
+            a = np.ascontiguousarray(a.transpose(1, 0))
+        return a
+
+    out = [_augment_flood_map(a) for a in transform_list]
+
+    if target_var in ('u', 'v'):
+        need_negate = False
+        if target_var == 'u' and do_hflip:
+            need_negate = True
+        if target_var == 'v' and do_vflip:
+            need_negate = True
+
+        if need_negate:
+            for ch in (idx_coarse, idx_fine):
+                out[ch] = -out[ch]
+
+    if idx_asin is not None and idx_acos is not None:
+        a_sin = out[idx_asin]
+        a_cos = out[idx_acos]
+
+        # hflip: (sin, cos) -> ( sin, -cos )
+        if do_hflip:
+            a_cos = -a_cos
+
+        # vflip: (sin, cos) -> ( -sin, cos )
+        if do_vflip:
+            a_sin = -a_sin
+
+        # rot90(CCW): (sin, cos) -> ( cos, -sin )
+        if do_rot90:
+            a_sin, a_cos = (a_cos, -a_sin)
+
+        out[idx_asin] = a_sin
+        out[idx_acos] = a_cos
+
+    return out

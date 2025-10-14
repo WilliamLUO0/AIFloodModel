@@ -2,8 +2,9 @@ from copy import deepcopy
 
 from basicsr.utils.registry import METRIC_REGISTRY
 from .psnr_ssim import calculate_psnr, calculate_ssim
+from .flood_metrics import cal_rmse_pt, cal_nse_pt, cal_csi_pt
 
-__all__ = ['calculate_psnr', 'calculate_ssim']
+__all__ = ['calculate_psnr', 'calculate_ssim', 'cal_rmse_pt', 'cal_nse_pt', 'cal_csi_pt']
 
 
 def calculate_metric(data, opt):
