@@ -7,7 +7,7 @@ datasets:
     index_csv: /.../dataset_patches/index.csv
 
     phase: train
-    target_var: h            # ★ 关键：h
+    target_var: h
     scale: 16
     patch_fine: 1024
     patch_coarse: 64
@@ -36,7 +36,7 @@ datasets:
     index_csv: /.../dataset_patches/index.csv
 
     phase: val
-    target_var: h            # ★ 与 train 一致
+    target_var: h
     scale: 16
     patch_fine: 1024
     patch_coarse: 64
@@ -76,7 +76,7 @@ datasets:
       val_ratio: 0.2
       seed: 2025
     stats:
-      calculate_if_missing: false   # ★ 防止在 test 上重算（避免数据泄露）
+      calculate_if_missing: false   # 防止在 test 上重算（避免数据泄露）
 
     # test 不做增强（即使写了 use_hflip/use_rot，也会被 phase=test 屏蔽）
     use_hflip: false
@@ -156,7 +156,7 @@ class PairedFloodMapDataset(data.Dataset):
         self.seed = int(split_cfg.get('seed', 61))
         self.split_stats_json = split_cfg.get(
             'split_stats_json',
-            os.path.join(self.root, f'split_stats_{self.target_var}.json')
+            os.path.join(self.root, 'dataset', f'split_stats_{self.target_var}.json')
         )
 
         stats_cfg = opt.get('stats', {}) or {}
@@ -177,7 +177,8 @@ class PairedFloodMapDataset(data.Dataset):
         else:
             raise ValueError(f'[ERROR] Unknown phase: {self.phase}')
 
-        self.wet_threshold = float(opt.get('wet_threshold', 0.05))
+        _wet_th = opt.get('wet_threshold', None)
+        self.wet_threshold = float(_wet_th) if _wet_th is not None else None
 
         check_required_fields(self.rows)
 
@@ -282,7 +283,7 @@ class PairedFloodMapDataset(data.Dataset):
 
         transform_list = [coarse_fm, fine_fm, elev, rough, slope, twi, asin, acos, mask_fine.astype(np.float32)]
 
-        if (self.target_var in ('u', 'v')) and (self.phase == 'train'):
+        if (self.target_var in ('u', 'v')) and (self.phase == 'train') and (self.wet_threshold is not None):
             h_fine_path = self._infer_h_fine_path(r['fine_path'], src_var=self.target_var)
             if os.path.isfile(h_fine_path):
                 h_fine = load_npy_shape(h_fine_path, expect_shape=(Hf, Hf), dtype=np.float32)
@@ -314,7 +315,7 @@ class PairedFloodMapDataset(data.Dataset):
         mask_fine = (transform_list[8] > 0.5).astype(np.float32)
 
         loss_wet_mask = None
-        if self.target_var in ('u', 'v') and (self.phase == 'train'):
+        if (self.target_var in ('u', 'v')) and (self.phase == 'train') and (self.wet_threshold is not None):
             wet_mask_fine = (transform_list[9] > 0.5).astype(np.float32)
             loss_wet_mask = (wet_mask_fine * mask_fine).astype(np.float32)
 

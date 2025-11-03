@@ -12,6 +12,12 @@ val:
       type: cal_csi_pt
       threshold: 0.05
       reduction: mean
+    nse_safe:
+      type: cal_nse_pt_safe
+      reduction: mean
+      min_var: 1.0e-6
+      abs_tol_per_px: 1.0e-4
+      lower_bound: -5.0
 """
 
 
@@ -129,6 +135,45 @@ def cal_nse_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
 
 
 @METRIC_REGISTRY.register()
+def cal_nse_pt_safe(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
+                    reduction: str = "mean", eps: float = 1e-12, min_var: float = 1e-6,
+                    abs_tol_per_px: float = 1e-4, lower_bound: float = -5.0):
+    pred = ensure_4d_pt(pred)
+    target = ensure_4d_pt(target)
+    mask = ensure_4d_pt(mask)
+
+    w = mask
+    wsum = sum_over_hw(w).clamp_min(eps)
+    t_sum = sum_over_hw(target * w)
+    t_mean = (t_sum / wsum).view(-1, 1, 1, 1)
+
+    masked_diff2 = sum_over_hw(((pred - target) ** 2) * w)
+    vc = sum_over_hw(((target - t_mean) ** 2) * w)
+
+    normal = vc >= min_var
+    nse = torch.empty_like(vc)
+    nse[normal] = 1.0 - (masked_diff2[normal] / vc[normal].clamp_min(eps))
+
+    tiny = ~normal
+    if tiny.any():
+        tiny_tol = (abs_tol_per_px ** 2) * wsum[tiny]
+        near_perfect = masked_diff2[tiny] <= tiny_tol
+        tiny_idx = torch.where(tiny)[0]
+        nse[tiny_idx[near_perfect]] = 1.0
+
+        bad = ~near_perfect
+        if bad.any():
+            bad_idx = tiny_idx[bad]
+            val = 1.0 - (masked_diff2[bad_idx] / min_var)
+            lower_bound_tensor = torch.tensor(lower_bound, device=masked_diff2.device, dtype=masked_diff2.dtype)
+            nse[bad_idx] = torch.maximum(val, lower_bound_tensor)
+
+    if reduction == "none":
+        return nse
+    return nse.mean().item()
+
+
+@METRIC_REGISTRY.register()
 def cal_nse_np(pred: np.ndarray, target: np.ndarray, mask: np.ndarray,
                reduction: str = "mean", eps: float = 1e-12):
     pred = ensure_4d_np(pred)
@@ -140,9 +185,45 @@ def cal_nse_np(pred: np.ndarray, target: np.ndarray, mask: np.ndarray,
     t_sum = (target * w).reshape(target.shape[0], -1).sum(1)
     t_mean = (t_sum / wsum)[:, None, None, None]
 
-    mask_diff2 = (((pred - target) ** 2) * w).reshape(pred.shape[0], -1).sum(1)
+    masked_diff2 = (((pred - target) ** 2) * w).reshape(pred.shape[0], -1).sum(1)
     vc = (((target - t_mean) ** 2) * w).reshape(pred.shape[0], -1).sum(1).clip(min=eps)
-    nse = 1.0 - mask_diff2 / vc
+    nse = 1.0 - masked_diff2 / vc
+    if reduction == "none":
+        return nse
+    return float(nse.mean())
+
+
+@METRIC_REGISTRY.register()
+def cal_nse_np_safe(pred: np.ndarray, target: np.ndarray, mask: np.ndarray,
+                    reduction: str = "mean", eps: float = 1e-12, min_var: float = 1e-6,
+                    abs_tol_per_px: float = 1e-4, lower_bound: float = -5.0):
+    pred = ensure_4d_np(pred)
+    target = ensure_4d_np(target)
+    mask = ensure_4d_np(mask)
+
+    w = mask
+    wsum = w.reshape(w.shape[0], -1).sum(1).clip(min=eps)
+    t_sum = (target * w).reshape(target.shape[0], -1).sum(1)
+    t_mean = (t_sum / wsum)[:, None, None, None]
+
+    masked_diff2 = (((pred - target) ** 2) * w).reshape(pred.shape[0], -1).sum(1)
+    vc = (((target - t_mean) ** 2) * w).reshape(pred.shape[0], -1).sum(1)
+
+    nse = np.empty_like(vc, dtype=np.float64)
+    normal = vc >= min_var
+    nse[normal] = 1.0 - (masked_diff2[normal] / np.clip(vc[normal], eps, None))
+
+    tiny = ~normal
+    if tiny.any():
+        tiny_tol = (abs_tol_per_px ** 2) * wsum[tiny]
+        near_perfect = masked_diff2[tiny] <= tiny_tol
+        nse[tiny] = 1.0
+
+        bad_idx = np.where(tiny)[0][~near_perfect]
+        if bad_idx.size > 0:
+            val = 1.0 - (masked_diff2[bad_idx] / min_var)
+            nse[bad_idx] = np.maximum(val, lower_bound)
+
     if reduction == "none":
         return nse
     return float(nse.mean())
@@ -205,3 +286,160 @@ def cal_csi_np(pred: np.ndarray, target: np.ndarray, mask: np.ndarray,
     if reduction == "none":
         return csi
     return float(csi.mean())
+
+
+@METRIC_REGISTRY.register()
+def cal_precision_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
+                     threshold: float = 0.05, reduction: str = "mean", eps: float = 1e-12):
+    pred = ensure_4d_pt(pred)
+    target = ensure_4d_pt(target)
+    mask = ensure_4d_pt(mask)
+
+    m = mask > 0.5
+    p_evt = (pred >= threshold) & m
+    t_evt = (target >= threshold) & m
+
+    tp = sum_over_hw((p_evt & t_evt).to(pred.dtype))
+    fp = sum_over_hw((p_evt & (~t_evt)).to(pred.dtype))
+
+    prec = tp / (tp + fp + eps)
+    if reduction == "none":
+        return prec
+    return prec.mean().item()
+
+
+@METRIC_REGISTRY.register()
+def cal_precision_np(pred: np.ndarray, target: np.ndarray, mask: np.ndarray,
+                     threshold: float = 0.05, reduction: str = "mean", eps: float = 1e-12):
+    pred = ensure_4d_np(pred)
+    target = ensure_4d_np(target)
+    mask = ensure_4d_np(mask)
+
+    m = mask > 0.5
+    p_evt = (pred >= threshold) & m
+    t_evt = (target >= threshold) & m
+
+    tp = (p_evt & t_evt).reshape(pred.shape[0], -1).sum(1).astype(np.float64)
+    fp = (p_evt & (~t_evt)).reshape(pred.shape[0], -1).sum(1).astype(np.float64)
+
+    prec = tp / (tp + fp + eps)
+    if reduction == "none":
+        return prec
+    return float(prec.mean())
+
+
+@METRIC_REGISTRY.register()
+def cal_recall_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
+                  threshold: float = 0.05, reduction: str = "mean", eps: float = 1e-12):
+    pred = ensure_4d_pt(pred)
+    target = ensure_4d_pt(target)
+    mask = ensure_4d_pt(mask)
+
+    m = mask > 0.5
+    p_evt = (pred >= threshold) & m
+    t_evt = (target >= threshold) & m
+
+    tp = sum_over_hw((p_evt & t_evt).to(pred.dtype))
+    fn = sum_over_hw(((~p_evt) & t_evt).to(pred.dtype))
+
+    rec = tp / (tp + fn + eps)
+    if reduction == "none":
+        return rec
+    return rec.mean().item()
+
+
+@METRIC_REGISTRY.register()
+def cal_recall_np(pred: np.ndarray, target: np.ndarray, mask: np.ndarray,
+                  threshold: float = 0.05, reduction: str = "mean", eps: float = 1e-12):
+    pred = ensure_4d_np(pred)
+    target = ensure_4d_np(target)
+    mask = ensure_4d_np(mask)
+
+    m = mask > 0.5
+    p_evt = (pred >= threshold) & m
+    t_evt = (target >= threshold) & m
+
+    tp = (p_evt & t_evt).reshape(pred.shape[0], -1).sum(1).astype(np.float64)
+    fn = ((~p_evt) & t_evt).reshape(pred.shape[0], -1).sum(1).astype(np.float64)
+
+    rec = tp / (tp + fn + eps)
+    if reduction == "none":
+        return rec
+    return float(rec.mean())
+
+
+@METRIC_REGISTRY.register()
+def cal_prev_t_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
+                  threshold: float = 0.05, reduction: str = "mean", eps: float = 1e-12):
+    _ = pred
+    target = ensure_4d_pt(target)
+    mask = ensure_4d_pt(mask)
+
+    m = mask > 0.5
+    t_evt = (target >= threshold) & m
+
+    num_t = sum_over_hw(t_evt.to(target.dtype))
+    denom = sum_over_hw(m.to(target.dtype)).clamp_min(eps)
+
+    prev_t = num_t / denom
+    if reduction == "none":
+        return prev_t
+    return prev_t.mean().item()
+
+
+@METRIC_REGISTRY.register()
+def cal_prev_t_np(pred: np.ndarray, target: np.ndarray, mask: np.ndarray,
+                  threshold: float = 0.05, reduction: str = "mean", eps: float = 1e-12):
+    _ = pred
+    target = ensure_4d_np(target)
+    mask = ensure_4d_np(mask)
+
+    m = mask > 0.5
+    t_evt = (target >= threshold) & m
+
+    num_t = t_evt.reshape(target.shape[0], -1).sum(1).astype(np.float64)
+    denom = m.reshape(target.shape[0], -1).sum(1).astype(np.float64)
+
+    prev_t = num_t / np.clip(denom, eps, None)
+    if reduction == "none":
+        return prev_t
+    return float(prev_t.mean())
+
+
+@METRIC_REGISTRY.register()
+def cal_prev_p_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
+                  threshold: float = 0.05, reduction: str = "mean", eps: float = 1e-12):
+    _ = target
+    pred = ensure_4d_pt(pred)
+    mask = ensure_4d_pt(mask)
+
+    m = mask > 0.5
+    p_evt = (pred >= threshold) & m
+
+    num_p = sum_over_hw(p_evt.to(pred.dtype))
+    denom = sum_over_hw(m.to(pred.dtype)).clamp_min(eps)
+
+    prev_p = num_p / denom
+    if reduction == "none":
+        return prev_p
+    return prev_p.mean().item()
+
+
+@METRIC_REGISTRY.register()
+def cal_prev_p_np(pred: np.ndarray, target: np.ndarray, mask: np.ndarray,
+                  threshold: float = 0.05, reduction: str = "mean", eps: float = 1e-12):
+    _ = target
+    pred = ensure_4d_np(pred)
+    mask = ensure_4d_np(mask)
+
+    m = mask > 0.5
+    p_evt = (pred >= threshold) & m
+
+    num_p = p_evt.reshape(pred.shape[0], -1).sum(1).astype(np.float64)
+    denom = m.reshape(pred.shape[0], -1).sum(1).astype(np.float64)
+
+    prev_p = num_p / np.clip(denom, eps, None)
+    if reduction == "none":
+        return prev_p
+    return float(prev_p.mean())
+

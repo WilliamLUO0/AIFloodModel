@@ -1093,10 +1093,14 @@ class FloodMapPFT(nn.Module):
             self.upsample = Upsample(upscale, num_feat)
             self.conv_last = nn.Conv2d(num_feat, num_out_ch, 3, 1, 1)
             # self.conv_last = nn.Conv2d(num_feat, num_out_ch, 5, 1, 2)
+            # flood head for nse + precision + recall
+            self.flood_head = nn.Conv2d(num_feat, 1, kernel_size=1, stride=1, padding=0)
         elif self.upsampler == 'pixelshuffledirect':
             # for lightweight SR (to save parameters)
             self.upsample = UpsampleOneStep(upscale, embed_dim, num_out_ch,
                                             (patches_resolution[0], patches_resolution[1]))
+            # flood head for nse + precision + recall
+            self.flood_head = nn.Conv2d(num_out_ch, 1, kernel_size=1, stride=1, padding=0)
         else:
             raise RuntimeError(f'[ERROR] yml.upsample ({self.upsampler}) needs to be "pixelshuffle" or '
                                f'"pixelshuffledirect"')
@@ -1223,7 +1227,6 @@ class FloodMapPFT(nn.Module):
         x = self.conv_first(x_fm_st)
         x_rc = x
 
-
         if self.upsampler == 'pixelshuffle':
             # for classical SR
             if gate is not None:
@@ -1232,7 +1235,10 @@ class FloodMapPFT(nn.Module):
             if gate is not None:
                 x = x * gate
             x = self.conv_before_upsample(x)
-            x = self.conv_last(self.upsample(x))
+            x_up = self.upsample(x)
+            depth = self.conv_last(x_up)
+            flood_logit = self.flood_head(x_up)
+            # x = self.conv_last(self.upsample(x))
         elif self.upsampler == 'pixelshuffledirect':
             # for lightweight SR
             if gate is not None:
@@ -1241,14 +1247,18 @@ class FloodMapPFT(nn.Module):
             if gate is not None:
                 x = x * gate
             x = self.upsample(x)
+            depth = x
+            flood_logit = self.flood_head(x)
         else:
             raise RuntimeError(f'[ERROR] yml.upsample ({self.upsampler}) needs to be "pixelshuffle" or '
                                f'"pixelshuffledirect"')
 
         # unpadding
-        x = x[..., :Hc * self.upscale, :Wc * self.upscale]
+        # x = x[..., :Hc * self.upscale, :Wc * self.upscale]
+        depth = depth[..., :Hc * self.upscale, :Wc * self.upscale]
+        flood_logit = flood_logit[..., :Hc * self.upscale, :Wc * self.upscale]
 
-        return x
+        return depth, flood_logit
 
     def flops(self, input_resolution=None):
         flops = 0
@@ -1287,8 +1297,12 @@ class FloodMapPFT(nn.Module):
             flops += self.upsample.flops(resolution)
             # conv last
             flops += (h * self.upscale) * (w * self.upscale) * 64 * 1 * 9
+            # flood head
+            flops += (h * self.upscale) * (w * self.upscale) * 64 * 1 * 1
         else:
             flops += self.upsample.flops(resolution)
+            # flood head
+            flops += (h * self.upscale) * (w * self.upscale) * 1 * 1 * 1
 
         return flops
 

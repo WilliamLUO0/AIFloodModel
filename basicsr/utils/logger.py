@@ -108,10 +108,25 @@ class MessageLogger():
             message += f'{k}: {v:.4e} '
             # tensorboard logger
             if self.use_tb_logger and 'debug' not in self.exp_name:
-                if k.startswith('l_'):
-                    self.tb_logger.add_scalar(f'losses/{k}', v, current_iter)
-                else:
-                    self.tb_logger.add_scalar(k, v, current_iter)
+                try:
+                    v_float = float(v)
+                    if k.startswith('l_'):
+                        self.tb_logger.add_scalar(f'losses/{k}', v_float, current_iter)
+                    else:
+                        self.tb_logger.add_scalar(k, v_float, current_iter)
+                except Exception as e:
+                    pass
+        if self.use_tb_logger and 'debug' not in self.exp_name:
+            try:
+                if isinstance(lrs, (list, tuple)) and len(lrs) > 0:
+                    self.tb_logger.add_scalar('train/lr', float(lrs[0]), current_iter)
+            except Exception:
+                pass
+            try:
+                self.tb_logger.flush()
+            except Exception:
+                pass
+
         self.logger.info(message)
 
 

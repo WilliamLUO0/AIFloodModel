@@ -28,7 +28,7 @@ def cal_log1p(x):
 
 
 def cal_asinh_p90(x, asinh_scale):
-    if asinh_scale is None or (not np.isfinite(asinh_scale)) or asinh_scale <= 0:
+    if (asinh_scale is None) or (not np.isfinite(asinh_scale)) or (asinh_scale <= 0):
         return x.astype(np.float32)
     return np.arcsinh(x / float(asinh_scale)).astype(np.float32)
 

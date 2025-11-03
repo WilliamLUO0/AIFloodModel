@@ -54,10 +54,15 @@ class FMSRModel(BaseModel):
             self.net_g_ema.eval()
 
         if train_opt.get('pixel_opt'):
-            self.use_wet_mask = train_opt['pixel_opt'].pop('use_wet_mask')
+            self.use_wet_mask = bool(train_opt['pixel_opt'].pop('use_wet_mask', False))
             self.loss_pix = build_loss(train_opt['pixel_opt']).to(self.device)
         else:
             raise RuntimeError(f'[ERROR] pixel_opt (MaskL1Loss) is not configured.')
+
+        if train_opt.get('flood_bce_opt'):
+            self.loss_flood = build_loss(train_opt['flood_bce_opt']).to(self.device)
+        else:
+            self.loss_flood = None
 
         self.setup_optimizers()
         self.setup_schedulers()
@@ -80,23 +85,100 @@ class FMSRModel(BaseModel):
         self.coarse_fm = data['coarse_flood_map'].to(self.device)
         self.static_f = data['fine_static_feature'].to(self.device)
         self.fine_fm = data['fine_flood_map'].to(self.device)
-        if self.is_train and ('wet_mask' in data) and self.use_wet_mask:
-            self.mask = data['wet_mask'].to(self.device)
+        self.mask = self.static_f[:, -1:, ...]
+        if self.is_train and self.use_wet_mask:
+            if 'wet_mask' not in data:
+                raise ValueError(f'[ERROR] Set use_wet_mask=True + wet_threshold to enable dry/wet loss calculation')
+            self.wet_mask = data['wet_mask'].to(self.device)
         else:
-            self.mask = self.static_f[:, -1:, ...]
+            self.wet_mask = None
         self.meta = data.get('meta', None)
+
+    def param_list(self):
+        return [p for p in self.net_g.parameters() if p.requires_grad]
+
+    def l2_from_grads(self, grads):
+        total = torch.zeros((), device=self.device)
+        with torch.no_grad():
+            for g in grads:
+                if g is not None:
+                    total += g.detach().pow(2).sum()
+        return total.sqrt()
+
+    # def optimize_parameters(self, current_iter):
+    #     self.optimizer_g.zero_grad()
+    #     # forward: net_g(coarse_flood_map, fine_static_feature) -> predicted_fine_flood_map
+    #     self.output, self.output_flood_logit = self.net_g(self.coarse_fm, self.static_f)
+    #
+    #     l_total = 0
+    #     loss_dict = OrderedDict()
+    #
+    #     if self.use_wet_mask:
+    #         l_pix = self.loss_pix(self.output, self.fine_fm, mask=self.wet_mask)
+    #     else:
+    #         l_pix = self.loss_pix(self.output, self.fine_fm, mask=self.mask)
+    #     l_total += l_pix
+    #     loss_dict['l_pix'] = l_pix
+    #
+    #     if self.loss_flood is not None:
+    #         l_bce = self.loss_flood(self.output_flood_logit, self.fine_fm, mask=self.mask)
+    #         l_total += l_bce
+    #         loss_dict['l_bce'] = l_bce
+    #     else:
+    #         l_bce = None
+    #
+    #     params = self.param_list()
+    #     grads_pix = torch.autograd.grad(l_pix, params, retain_graph=True, allow_unused=True)
+    #     theta_pix_l2 = self.l2_from_grads(grads_pix)
+    #
+    #     if l_bce is not None:
+    #         grads_bce = torch.autograd.grad(l_bce, params, retain_graph=True, allow_unused=True)
+    #         theta_bce_l2 = self.l2_from_grads(grads_bce)
+    #     else:
+    #         theta_bce_l2 = torch.tensor(0.0, device=self.device)
+    #
+    #     eps = 1e-12
+    #     theta_ratio = theta_bce_l2 / (theta_pix_l2 + eps)
+    #     loss_dict['grads/theta_pix_l2'] = theta_pix_l2
+    #     loss_dict['grads/theta_bce_l2'] = theta_bce_l2
+    #     loss_dict['grads/theta_ratio'] = theta_ratio
+    #
+    #     self.optimizer_g.zero_grad(set_to_none=True)
+    #
+    #     l_total.backward()
+    #
+    #     param_grad_norm = torch.zeros((), device=self.device)
+    #     with torch.no_grad():
+    #         for p in params:
+    #             if p.grad is not None:
+    #                 param_grad_norm += p.grad.detach().pow(2).sum()
+    #     loss_dict['grads/param_grad_norm'] = param_grad_norm.sqrt()
+    #
+    #     self.optimizer_g.step()
+    #     self.log_dict = self.reduce_loss_dict(loss_dict)
+    #
+    #     if self.ema_decay > 0:
+    #         self.model_ema(decay=self.ema_decay)
 
     def optimize_parameters(self, current_iter):
         self.optimizer_g.zero_grad()
         # forward: net_g(coarse_flood_map, fine_static_feature) -> predicted_fine_flood_map
-        self.output = self.net_g(self.coarse_fm, self.static_f)
+        self.output, self.output_flood_logit = self.net_g(self.coarse_fm, self.static_f)
 
         l_total = 0
         loss_dict = OrderedDict()
 
-        l_pix = self.loss_pix(self.output, self.fine_fm, mask=self.mask)
+        if self.use_wet_mask:
+            l_pix = self.loss_pix(self.output, self.fine_fm, mask=self.wet_mask)
+        else:
+            l_pix = self.loss_pix(self.output, self.fine_fm, mask=self.mask)
         l_total += l_pix
         loss_dict['l_pix'] = l_pix
+
+        if self.loss_flood is not None:
+            l_bce = self.loss_flood(self.output_flood_logit, self.fine_fm, mask=self.mask)
+            l_total += l_bce
+            loss_dict['l_bce'] = l_bce
 
         l_total.backward()
         self.optimizer_g.step()
@@ -109,12 +191,37 @@ class FMSRModel(BaseModel):
         if hasattr(self, 'net_g_ema'):
             self.net_g_ema.eval()
             with torch.no_grad():
-                self.output = self.net_g_ema(self.coarse_fm, self.static_f)
+                self.output, self.output_flood_logit = self.net_g_ema(self.coarse_fm, self.static_f)
         else:
             self.net_g.eval()
             with torch.no_grad():
-                self.output = self.net_g(self.coarse_fm, self.static_f)
+                self.output, self.output_flood_logit = self.net_g(self.coarse_fm, self.static_f)
             self.net_g.train()
+
+    def first_scalar(self, x, *, name=None):
+        if isinstance(x, (str, bytes, os.PathLike)):
+            return x if isinstance(x, str) else str(x)
+
+        if isinstance(x, (list, tuple)):
+            if len(x) == 0:
+                return None
+            if len(x) == 1:
+                return self.first_scalar(x[0], name=name)
+            raise RuntimeError(f"[ERROR] data.meta{name} has batch > 1 (len = {len(x)}). Expect batch size = 1 for "
+                               f"val/test set.")
+
+        if isinstance(x, np.ndarray):
+            if x.ndim == 0 or x.size == 1:
+                return x.reshape(()).item()
+            raise RuntimeError(f"[ERROR] data.meta{name} has numel={x.size} > 1. Expect batch size = 1 for val/test set.")
+
+        if isinstance(x, torch.Tensor):
+            if x.ndim == 0 or x.numel() == 1:
+                return x.view(()).item()
+            raise RuntimeError(f"[ERROR] data.meta{name} has numel={x.numel()} > 1. Expect batch size = 1 for "
+                               f"val/test set.")
+
+        return x
 
     def dist_validation(self, dataloader, current_iter, tb_logger, save_flood_map):
         if self.opt['rank'] == 0:
@@ -145,7 +252,7 @@ class FMSRModel(BaseModel):
             self.feed_data(val_data)
             self.test()
             if self.meta is not None and isinstance(self.meta, dict):
-                flood_map_name = osp.splitext(osp.basename(self.meta.get('coarse_path')))[0]
+                flood_map_name = osp.splitext(osp.basename(self.first_scalar(self.meta.get('coarse_path'), name='coarse_path')))[0]
 
             eval_mask = self.static_f[:, -1:, ...]
 
@@ -155,9 +262,11 @@ class FMSRModel(BaseModel):
 
             if with_metrics:
                 for name, opt_ in self.opt['val']['metrics'].items():
+                    config_keys = {'better'}
+                    opt_clean = {k: v for k, v in opt_.items() if k not in config_keys}
                     val = calculate_metric(
                         {'pred': pred_phy, 'target': simu_phy, 'mask': eval_mask},
-                        opt_
+                        opt_clean
                     )
                     if torch.is_tensor(val):
                         val = val.mean().item()
@@ -168,19 +277,19 @@ class FMSRModel(BaseModel):
                     save_dir = osp.join(self.opt['path']['visualization'], flood_map_name)
                     os.makedirs(save_dir, exist_ok=True)
 
-                    scenario = self.meta.get('scenario')
-                    t = self.meta.get('t')
-                    row = self.meta.get('row')
-                    col = self.meta.get('col')
-                    var = self.meta.get('var')
-                    downscale = self.meta.get('downscale')
-                    save_flood_map_name = f'{var}_{scenario}_t{t}_r{row:03d}_c{col:03d}_s{downscale}_{current_iter}.npy'
+                    scenario = str(self.first_scalar(self.meta.get('scenario'), name='scenario'))
+                    t = str(self.first_scalar(self.meta.get('t'), name='t'))
+                    row = int(self.first_scalar(self.meta.get('row'), name='row'))
+                    col = int(self.first_scalar(self.meta.get('col'), name='col'))
+                    var = str(self.first_scalar(self.meta.get('var'), name='var'))
+                    downscale = int(self.first_scalar(self.meta.get('downscale'), name='downscale'))
+                    save_flood_map_name = f'{var}_{scenario}_{t}_r{row:03d}_c{col:03d}_s{downscale}_{current_iter}.npy'
                 else:
                     raise RuntimeError(f'[ERROR] Save flood map needs val_data.meta information.')
 
                 np.save(osp.join(save_dir, save_flood_map_name), pred_phy.detach().cpu().numpy().astype(np.float32))
 
-            del self.coarse_fm, self.static_f, self.fine_fm, self.output
+            del self.coarse_fm, self.static_f, self.fine_fm, self.output, self.output_flood_logit
             torch.cuda.empty_cache()
 
             if use_pbar:
