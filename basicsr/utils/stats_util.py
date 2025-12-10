@@ -1,5 +1,7 @@
 import csv
 import torch
+import time
+import errno
 import numpy as np
 
 
@@ -43,8 +45,21 @@ def percentile_clip(x, lo, hi):
     return np.clip(x, lo, hi)
 
 
-def load_npy_shape(path, expect_shape=None, dtype=np.float32):
-    arr = np.load(path)
+def load_npy_shape(path, expect_shape=None, dtype=np.float32, max_retries=7, base_delay=0.4):
+    arr = None
+    for k in range(max_retries):
+        try:
+            arr = np.load(path)
+            break
+        except OSError as e:
+            code = getattr(e, "errno", None)
+            msg = str(e).lower()
+            transient = (code in (121, errno.EIO)) or ("remote i/o" in msg) or ("remote io" in msg) or (
+                        "i/o error" in msg)
+            if transient and k < max_retries - 1:
+                time.sleep(base_delay * (2 ** k))
+                continue
+            raise
     if expect_shape is not None:
         h, w = expect_shape
         if arr.shape != expect_shape:

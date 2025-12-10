@@ -1,58 +1,21 @@
 # general settings
-name: 001_FMPFT_SRx16_scratch
+name: 002_FMPFT_SRx16_scratch
 model_type: FMSRModel
 scale: 16
-num_gpu: 2  # 1
+num_gpu: 1
 manual_seed: 61
-
-# find_unused_parameters needs to be true, otherwise it will affect performance
-find_unused_parameters: true
 
 # dataset and data loader settings
 datasets:
-  train:
-    name: FloodMapSR-Train-h
+  test_1:
+    name: FloodMapSR-Train-h-100y42h0c
     type: PairedFloodMapDataset
-    dataroot: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset
-    index_csv: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset/index.csv
+    dataroot: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_test_100y42h0c
+    index_csv: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_test_100y42h0c/index.csv
     io_backend:
       type: disk
 
-    phase: train
-    target_var: h
-    scale: 16
-    patch_fine: 1024
-    patch_coarse: 64
-    use_hflip: true
-    use_rot: true
-
-    split_cfg:
-      by: scenario
-      val_ratio: 0.2
-      seed: 61
-      split_stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset/split_stats_h.json
-    stats:
-      calculate_if_missing: false
-      use_clip_coarse: true
-      use_clip_static: true
-
-    # data loader
-    num_worker_per_gpu: 8
-    batch_size_per_gpu: 4
-    dataset_enlarge_ratio: 1
-    prefetch_mode: cuda
-    pin_memory: True
-    persistent_workers: True
-
-  val_1:
-    name: FloodMapSR-Val-h
-    type: PairedFloodMapDataset
-    dataroot: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset
-    index_csv: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset/index.csv
-    io_backend:
-      type: disk
-
-    phase: val
+    phase: test
     target_var: h
     scale: 16
     patch_fine: 1024
@@ -96,39 +59,14 @@ network_g:
 
 # path
 path:
-  pretrain_network_g: ~
-  strict_load_g: true
-  resume_state: ~
-
-# training settings
-train:
-  ema_decay: 0.999
-  optim_g:
-    type: AdamW
-    lr: !!float 2e-4
-    weight_decay: 0
-    betas: [0.9, 0.99]
-
-  scheduler:
-    type: MultiStepLR
-    milestones: [250000, 400000, 450000, 475000, 490000]
-    gamma: 0.5
-
-  total_iter: 500000
-  warmup_iter: 20000
-
-  # losses
-  pixel_opt:
-    type: MaskL1Loss
-    loss_weight: 1.0
-    ignore_zero_mask: true
-    eps: 1.0e-12
-    use_wet_mask: false
+  pretrain_network_g: experiments/pretrained_models/002_FMPFT_SRx16_scratch.pth
+  strict_load_g: yes
+  param_key_g: params_ema
 
 # validation settings
 val:
-  val_freq: !!float 1e4
-  save_flood_map: false
+  save_flood_map: true
+  suffix: ~
 
   metrics:
     rmse:
@@ -169,17 +107,3 @@ val:
       type: cal_prev_p_pt
       threshold: 0.05
       reduction: mean
-
-# logging settings
-logger:
-  print_freq: 100
-  save_checkpoint_freq: !!float 1e4
-  use_tb_logger: true
-  wandb:
-    project: ~
-    resume_id: ~
-
-# dist training settings
-dist_params:
-  backend: nccl
-  port: 29500

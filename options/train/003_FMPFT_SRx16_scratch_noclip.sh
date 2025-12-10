@@ -1,12 +1,13 @@
 #!/bin/bash
-#SBATCH --job-name=precompute_stats_h
+#SBATCH --job-name=fmpft_sr16
 #SBATCH --account=uoa04425
 #SBATCH --partition=milan,genoa
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
+#SBATCH --gres=gpu:a100:1
 #SBATCH --cpus-per-task=16
-#SBATCH --mem=32G
-#SBATCH --time=72:00:00
+#SBATCH --mem=80G
+#SBATCH --time=168:00:00
 #SBATCH --output=logs/%x_%j.out
 #SBATCH --error=logs/%x_%j.err
 
@@ -21,12 +22,11 @@ export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 export OPENBLAS_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 export MKL_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 export NUMEXPR_NUM_THREADS=${SLURM_CPUS_PER_TASK}
+export PYTHONUNBUFFERED=1
 
-python tools/precompute_split_stats.py \
-  --index_csv /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ba_ba/index.csv \
-  --root      /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ba_ba \
-  --out_json  /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ba_ba/split_stats_h.json \
-  --target_var h \
-  --by scenario --val_ratio 0.2 --seed 61 \
-  --bins 8192 \
-  --coarse_mode both
+nvidia-smi
+
+srun torchrun --nproc_per_node=1 --standalone \
+  basicsr/train_flood_map_v2.py -opt options/train/003_FMPFT_SRx16_scratch_noclip.yml \
+  --launcher pytorch
+

@@ -19,7 +19,9 @@ datasets:
       seed: 2025
       split_stats_json: /.../dataset_patches/split_stats.json
     stats:
-      calculate_if_missing: true
+      calculate_if_missing: false
+      use_clip_coarse: false
+      use_clip_static: true
 
     use_hflip: true
     use_rot: true
@@ -161,6 +163,8 @@ class PairedFloodMapDataset(data.Dataset):
 
         stats_cfg = opt.get('stats', {}) or {}
         self.calculate_if_missing = bool(stats_cfg.get('calculate_if_missing', True))
+        self.use_clip_coarse = bool(stats_cfg.get('use_clip_coarse', True))
+        self.use_clip_static = bool(stats_cfg.get('use_clip_static', True))
 
         all_rows = load_index_csv(self.index_csv)
         rows = [r for r in all_rows if int(r['filtered_out']) == 0 and str(r.get('var', '')).lower() == self.target_var]
@@ -324,7 +328,8 @@ class PairedFloodMapDataset(data.Dataset):
 
         if self.target_var == 'h':
             cfm = cal_log1p(coarse_fm)
-            cfm = percentile_clip(cfm, S_var['coarse']['p1'], S_var['coarse']['p99'])
+            if self.use_clip_coarse:
+                cfm = percentile_clip(cfm, S_var['coarse']['p1'], S_var['coarse']['p99'])
             cfm = cal_zscore(cfm, S_var['coarse']['mean'], S_var['coarse']['std'])
 
             ffm = cal_log1p(fine_fm)
@@ -332,19 +337,26 @@ class PairedFloodMapDataset(data.Dataset):
         else:
             s = S_var['coarse']['asinh_scale']
             cfm = cal_asinh_p90(coarse_fm, s)
-            cfm = percentile_clip(cfm, S_var['coarse']['p1'], S_var['coarse']['p99'])
+            if self.use_clip_coarse:
+                cfm = percentile_clip(cfm, S_var['coarse']['p1'], S_var['coarse']['p99'])
             cfm = cal_zscore(cfm, S_var['coarse']['mean'], S_var['coarse']['std'])
 
             ffm = cal_asinh_p90(fine_fm, s)
             ffm = cal_zscore(ffm, S_var['coarse']['mean'], S_var['coarse']['std'])
 
-        e = percentile_clip(elev, S_static['elevation']['p1'], S_static['elevation']['p99'])
+        e = elev
+        if self.use_clip_static:
+            e = percentile_clip(e, S_static['elevation']['p1'], S_static['elevation']['p99'])
         e = cal_zscore(e, S_static['elevation']['mean'], S_static['elevation']['std'])
 
-        rgh = percentile_clip(rough, S_static['roughness']['p1'], S_static['roughness']['p99'])
+        rgh = rough
+        if self.use_clip_static:
+            rgh = percentile_clip(rgh, S_static['roughness']['p1'], S_static['roughness']['p99'])
         rgh = cal_zscore(rgh, S_static['roughness']['mean'], S_static['roughness']['std'])
 
-        tf = percentile_clip(twi, S_static['twi']['p1'], S_static['twi']['p99'])
+        tf = twi
+        if self.use_clip_static:
+            tf = percentile_clip(tf, S_static['twi']['p1'], S_static['twi']['p99'])
         tf = cal_zscore(tf, S_static['twi']['mean'], S_static['twi']['std'])
 
         slp = (slope / 90.0)

@@ -156,7 +156,7 @@ def compute_static_stats(train_rows, bins=8192):
     return out
 
 
-def compute_h_stats(train_rows, bins=8192, clip_coarse=True):
+def compute_h_stats(train_rows, bins=8192):
     # coarse + mask_coarse 对 log1p(coarse)
     p_coarse = [r['coarse_path'] for r in train_rows]
     p_mask = [r['mask_coarse_path'] for r in train_rows]
@@ -165,39 +165,34 @@ def compute_h_stats(train_rows, bins=8192, clip_coarse=True):
         for x in masked_iter_values(p_coarse, p_mask):
             yield cal_log1p(x)
 
-    if clip_coarse:
-        H = StreamingHistogram(bins=bins)
-        for x in _log1p_gen():
-            H.update_minmax(x)
-        H.allocate()
-        for x in _log1p_gen():
-            H.update_hist(x)
-        p1 = H.percentile(1.0)
-        p99 = H.percentile(99.0)
+    # pass1: 直方图得 p1/p99
+    H = StreamingHistogram(bins=bins)
+    for x in _log1p_gen():
+        H.update_minmax(x)
+    H.allocate()
+    for x in _log1p_gen():
+        H.update_hist(x)
+    p1 = H.percentile(1.0)
+    p99 = H.percentile(99.0)
 
-        wf = Welford()
-        for x in _log1p_gen():
-            if np.isfinite(p1) and np.isfinite(p99):
-                x = np.clip(x, p1, p99)
-            wf.update(x)
-        mean, std = wf.result(sample=False)
-        return {"coarse": {
+    # pass2: 阈内 Welford
+    wf = Welford()
+    for x in _log1p_gen():
+        if np.isfinite(p1) and np.isfinite(p99):
+            x = np.clip(x, p1, p99)
+        wf.update(x)
+    mean, std = wf.result(sample=False)
+
+    return {
+        "coarse": {
             "after": "log1p_clip_zscore",
             "p1": p1, "p99": p99,
             "mean": mean, "std": std
-        }}
-    else:
-        wf = Welford()
-        for x in _log1p_gen():
-            wf.update(x)
-        mean, std = wf.result(sample=False)
-        return {"coarse": {
-            "after": "log1p_zscore",
-            "mean": mean, "std": std
-        }}
+        }
+    }
 
 
-def compute_uv_stats(train_rows, bins=8192, clip_coarse=True):
+def compute_uv_stats(train_rows, bins=8192):
     # coarse + mask_coarse 三趟
     p_coarse = [r['coarse_path'] for r in train_rows]
     p_mask = [r['mask_coarse_path'] for r in train_rows]
@@ -205,50 +200,46 @@ def compute_uv_stats(train_rows, bins=8192, clip_coarse=True):
     # pass1: |x| 的 p90 -> asinh_scale
     H_abs = StreamingHistogram(bins=bins)
     for x in masked_iter_values(p_coarse, p_mask):
-        H_abs.update_minmax(np.abs(x))
+        xabs = np.abs(x)
+        H_abs.update_minmax(xabs)
     H_abs.allocate()
     for x in masked_iter_values(p_coarse, p_mask):
         H_abs.update_hist(np.abs(x))
     asinh_scale = H_abs.percentile(90.0)
     if (not np.isfinite(asinh_scale)) or (asinh_scale <= 0):
+        # 粗糙兜底
         asinh_scale = 1.0
 
+    # pass2: asinh 变换后的 p1/p99
     def _asinh_gen():
         for x in masked_iter_values(p_coarse, p_mask):
             yield np.arcsinh(x / asinh_scale)
 
-    if clip_coarse:
-        H = StreamingHistogram(bins=bins)
-        for x in _asinh_gen():
-            H.update_minmax(x)
-        H.allocate()
-        for x in _asinh_gen():
-            H.update_hist(x)
-        p1 = H.percentile(1.0)
-        p99 = H.percentile(99.0)
+    H = StreamingHistogram(bins=bins)
+    for x in _asinh_gen():
+        H.update_minmax(x)
+    H.allocate()
+    for x in _asinh_gen():
+        H.update_hist(x)
+    p1 = H.percentile(1.0)
+    p99 = H.percentile(99.0)
 
-        wf = Welford()
-        for x in _asinh_gen():
-            if np.isfinite(p1) and np.isfinite(p99):
-                x = np.clip(x, p1, p99)
-            wf.update(x)
-        mean, std = wf.result(sample=False)
-        return {"coarse": {
+    # pass3: 阈内 Welford
+    wf = Welford()
+    for x in _asinh_gen():
+        if np.isfinite(p1) and np.isfinite(p99):
+            x = np.clip(x, p1, p99)
+        wf.update(x)
+    mean, std = wf.result(sample=False)
+
+    return {
+        "coarse": {
             "after": "asinh_clip_zscore",
             "asinh_scale": float(asinh_scale),
             "p1": p1, "p99": p99,
             "mean": mean, "std": std
-        }}
-    else:
-        wf = Welford()
-        for x in _asinh_gen():
-            wf.update(x)
-        mean, std = wf.result(sample=False)
-        return {"coarse": {
-            "after": "asinh_zscore",
-            "asinh_scale": float(asinh_scale),
-            "mean": mean, "std": std
-        }}
+        }
+    }
 
 
 def main():
@@ -261,7 +252,6 @@ def main():
     ap.add_argument('--val_ratio', type=float, default=0.2)
     ap.add_argument('--seed', type=int, default=61)
     ap.add_argument('--bins', type=int, default=8192)
-    ap.add_argument('--coarse_mode', choices=['clip', 'noclip', 'both'], default='clip')
     args = ap.parse_args()
 
     rows_all = load_index_csv(args.index_csv)
@@ -272,23 +262,6 @@ def main():
 
     def _maybe_join(p):
         return p if os.path.isabs(p) else os.path.join(args.root, p)
-
-    def _finalize_and_write(stats_var, suffix=''):
-        meta_out = dict(meta)
-        meta_out['stats_var'] = stats_var
-        meta_out['stats_var_for'] = args.target_var
-
-        out_path = args.out_json
-        if suffix:
-            if out_path.endswith('.json'):
-                out_path = out_path[:-5] + f'_{suffix}.json'
-            else:
-                out_path = out_path + f'_{suffix}.json'
-
-        os.makedirs(os.path.dirname(out_path), exist_ok=True)
-        with open(out_path, 'w') as f:
-            json.dump(meta_out, f, indent=2)
-        print(f'Wrote {out_path}')
 
     for r in rows:
         need = ["coarse_path", "fine_path", "elev_path", "rough_path",
@@ -319,25 +292,26 @@ def main():
     # 计算 static + var
     print(f'Computing stats on {len(train_rows)} train patches, target_var={args.target_var} ...')
 
-    static_rows = [r for r in rows_all if int(r['filtered_out']) == 0 and str(r.get('var', '')).lower() == 'h']
+    static_rows = [r for r in rows_all if int(r['filtered_out']) == 0 and str(r.get('var','')).lower() == 'h']
     static_train_ids = set(meta['split']['train'])
     static_train_rows = [r for r in static_rows if int(r['_row_id']) in static_train_ids]
     stats_static = compute_static_stats(static_train_rows, bins=args.bins)
     meta['stats'] = stats_static
 
-    modes = [args.coarse_mode] if args.coarse_mode in ('clip', 'noclip') else ['clip', 'noclip']
+    if args.target_var == 'h':
+        stats_var = compute_h_stats(train_rows, bins=args.bins)
+    elif args.target_var in ('u', 'v'):
+        stats_var = compute_uv_stats(train_rows, bins=args.bins)
+    else:
+        stats_var = {"coarse": {}}
 
-    for mode in modes:
-        clip_flag = (mode == 'clip')
-        if args.target_var == 'h':
-            stats_var = compute_h_stats(train_rows, bins=args.bins, clip_coarse=clip_flag)
-        elif args.target_var in ('u', 'v'):
-            stats_var = compute_uv_stats(train_rows, bins=args.bins, clip_coarse=clip_flag)
-        else:
-            stats_var = {"coarse": {}}
+    meta['stats_var'] = stats_var
+    meta['stats_var_for'] = args.target_var
 
-        suffix = 'clip' if clip_flag else 'noclip'
-        _finalize_and_write(stats_var, suffix=suffix)
+    os.makedirs(os.path.dirname(args.out_json), exist_ok=True)
+    with open(args.out_json, 'w') as f:
+        json.dump(meta, f, indent=2)
+    print(f'Wrote {args.out_json}')
 
 
 if __name__ == '__main__':

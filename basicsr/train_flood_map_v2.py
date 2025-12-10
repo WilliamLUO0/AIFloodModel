@@ -226,7 +226,7 @@ def train_pipeline(root_path):
                     model.save(epoch, current_iter)
                     sync_signal(save_token, logger)
                 else:
-                    sync_wait(save_token, timeout=14400, sleep_s=1.0, logger=logger)
+                    sync_wait(save_token, timeout=28800, sleep_s=1.0, logger=logger)
 
             # validation
             if opt.get('val') is not None and (current_iter % opt['val']['val_freq'] == 0):
@@ -244,7 +244,7 @@ def train_pipeline(root_path):
                         model.validation(val_loader, current_iter, tb_logger, opt['val']['save_flood_map'])
                     sync_signal(val_token, logger)
                 else:
-                    sync_wait(val_token, timeout=14400, sleep_s=1.0, logger=logger)
+                    sync_wait(val_token, timeout=28800, sleep_s=1.0, logger=logger)
 
             data_timer.start()
             iter_timer.start()
@@ -267,7 +267,7 @@ def train_pipeline(root_path):
         model.save(epoch=-1, current_iter=-1)  # -1 stands for the latest
         sync_signal(final_save_token, logger)
     else:
-        sync_wait(final_save_token, timeout=14400, sleep_s=1.0, logger=logger)
+        sync_wait(final_save_token, timeout=28800, sleep_s=1.0, logger=logger)
 
     if opt.get('val') is not None:
         final_val_token = osp.join(token_dir, '.final_val_done')
@@ -281,7 +281,7 @@ def train_pipeline(root_path):
                 model.validation(val_loader, current_iter, tb_logger, opt['val']['save_flood_map'])
             sync_signal(final_val_token, logger)
         else:
-            sync_wait(final_val_token, timeout=14400, sleep_s=1.0, logger=logger)
+            sync_wait(final_val_token, timeout=28800, sleep_s=1.0, logger=logger)
 
     if tb_logger:
         tb_logger.close()
