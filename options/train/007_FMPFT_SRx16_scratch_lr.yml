@@ -1,0 +1,219 @@
+# general settings
+name: 007_FMPFT_SRx16_scratch_lr
+model_type: FMSRModel
+scale: 16
+num_gpu: 4  # 1
+manual_seed: 61
+
+# find_unused_parameters needs to be true, otherwise it will affect performance
+find_unused_parameters: true
+
+# dataset and data loader settings
+datasets:
+  train:
+    name: FloodMapSR-Train-h
+    type: PairedFloodMapDataset
+    dataroot: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset
+    index_csv: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset/index.csv
+    io_backend:
+      type: disk
+
+    phase: train
+    target_var: h
+    scale: 16
+    patch_fine: 1024
+    patch_coarse: 64
+    use_hflip: true
+    use_rot: true
+
+    split_cfg:
+      by: scenario
+      val_ratio: 0.2
+      seed: 61
+      split_stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset/split_stats_h_noclip.json
+    stats:
+      calculate_if_missing: false
+      use_clip_coarse: false
+      use_clip_static: true
+
+    # data loader
+    num_worker_per_gpu: 8
+    batch_size_per_gpu: 4
+    dataset_enlarge_ratio: 1
+    prefetch_mode: cuda
+    pin_memory: True
+    persistent_workers: True
+
+  val_1:
+    name: FloodMapSR-Val-h
+    type: PairedFloodMapDataset
+    dataroot: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset
+    index_csv: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset/index.csv
+    io_backend:
+      type: disk
+
+    phase: val
+    target_var: h
+    scale: 16
+    patch_fine: 1024
+    patch_coarse: 64
+
+    split_cfg:
+      by: scenario
+      val_ratio: 0.2
+      seed: 61
+      split_stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset/split_stats_h_noclip.json
+    stats:
+      calculate_if_missing: false
+      use_clip_coarse: false
+      use_clip_static: true
+
+# network structures
+network_g:
+  type: FloodMapPFT
+  upscale: 16
+  coarse_in_chans: 1
+  static_in_chans: 7
+  flood_map_size: 64
+  use_shallow_act: true
+  use_aoi_gate: true
+  aoi_alpha: 0.8
+  embed_dim: 240
+  depths: [4, 4, 4, 6, 6, 6]
+  num_heads: 6
+  num_topk: [ 1024, 1024, 1024, 1024,
+              256, 256, 256, 256,
+              128, 128, 128, 128,
+              64, 64, 64, 64, 64, 64,
+              32, 32, 32, 32, 32, 32,
+              16, 16, 16, 16, 16, 16,]
+  window_size: 32
+  convffn_kernel_size: 7
+  mlp_ratio: 2.
+  upsampler: 'pixelshuffle'
+  resi_connection: '1conv'
+  use_checkpoint: false
+
+# path
+path:
+  pretrain_network_g: ~
+  strict_load_g: true
+  resume_state: ~
+
+# training settings
+train:
+  ema_decay: 0.999
+  optim_g:
+    type: AdamW
+    lr: !!float 2e-3
+    weight_decay: 0
+    betas: [0.9, 0.99]
+
+  scheduler:
+    type: MultiStepLR
+    milestones: [500000, 800000, 900000, 950000, 980000]
+    gamma: 0.5
+
+  total_iter: 1000000
+  warmup_iter: 40000
+
+  # losses
+  pixel_opt:
+    type: MaskL1Loss
+    loss_weight: 1.0
+    ignore_zero_mask: true
+    eps: 1.0e-12
+    use_wet_mask: false
+  flood_bce_opt:
+    type: MaskBCELoss
+    loss_weight: 1.0
+    tau_flood_m: 0.05
+    tau_is_physical: true
+    var: 'h'
+    stats_mean: 0.05965
+    stats_std: 0.20696
+    pos_weight_mode: 'batch'
+    focal_gamma: 2
+    alpha_pos: 0.7
+    ignore_zero_mask: true
+    eps: 1.0e-12
+
+# validation settings
+val:
+  val_freq: !!float 2e4
+  save_flood_map: false
+
+  metrics:
+    rmse:
+      type: cal_rmse_pt
+      reduction: mean
+      better: lower
+    rmse_thr:
+      type: cal_rmse_depth_threshold_pt
+      better: lower
+    rmse_thr_tol:
+      type: cal_rmse_depth_threshold_tolerant_pt
+      better: lower
+    nse:
+      type: cal_nse_pt
+      reduction: mean
+      better: higher
+    nse_safe:
+      type: cal_nse_pt_safe
+      reduction: mean
+      min_var: 1.0e-6
+      abs_tol_per_px: 1.0e-4
+      lower_bound: -5.0
+      better: higher
+    nse_thr_safe:
+      type: cal_nse_depth_threshold_pt_safe
+      better: higher
+    nse_thr_tol_safe:
+      type: cal_nse_depth_threshold_tolerant_pt_safe
+      better: higher
+    csi:
+      type: cal_csi_pt
+      threshold: 0.05
+      reduction: mean
+      better: higher
+    csi_tol:
+      type: cal_csi_depth_tolerant_pt
+      better: higher
+    precision:
+      type: cal_precision_pt
+      threshold: 0.05
+      reduction: mean
+      better: higher
+    precision_tol:
+      type: cal_precision_depth_tolerant_pt
+      better: higher
+    recall:
+      type: cal_recall_pt
+      threshold: 0.05
+      reduction: mean
+      better: higher
+    recell_tol:
+      type: cal_recall_depth_tolerant_pt
+      better: higher
+    target_prevalence:
+      type: cal_prev_t_pt
+      threshold: 0.05
+      reduction: mean
+    pred_prevalence:
+      type: cal_prev_p_pt
+      threshold: 0.05
+      reduction: mean
+
+# logging settings
+logger:
+  print_freq: 100
+  save_checkpoint_freq: !!float 5e3
+  use_tb_logger: true
+  wandb:
+    project: ~
+    resume_id: ~
+
+# dist training settings
+dist_params:
+  backend: nccl
+  port: 29500

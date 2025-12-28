@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=fmpft_sr16_gpu4_1
+#SBATCH --job-name=fmpft_sr16_gpu4_2
 #SBATCH --account=uoa04425
 #SBATCH --partition=milan,genoa
 #SBATCH --nodes=1
@@ -28,6 +28,6 @@ export PYTHONUNBUFFERED=1
 nvidia-smi
 
 srun torchrun --nproc_per_node=4 --standalone \
-  basicsr/train_flood_map_v2.py -opt options/train/007_FMPFT_SRx16_scratch.yml \
+  basicsr/train_flood_map_v2.py -opt options/train/007_FMPFT_SRx16_scratch_lr.yml \
   --launcher pytorch --auto_resume
 
