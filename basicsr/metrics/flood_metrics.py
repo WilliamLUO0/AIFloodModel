@@ -87,7 +87,8 @@ def cal_rmse_threshold_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.
     """
     RMSE with physical threshold.
 
-    Calculate RMSE when target >= threshold
+    Values < threshold are set to 0 for both pred and target,
+    then RMSE is calculated over the full masked domain.
     """
     pred = ensure_4d_pt(pred)
     target = ensure_4d_pt(target)
@@ -115,7 +116,9 @@ def cal_rmse_threshold_tolerant_pt(pred: torch.Tensor, target: torch.Tensor, mas
     """
     RMSE with physical threshold + error tolerance.
 
-    Calculate RMSE when target >= threshold and |pred - target| >= abs_tol
+    Values < threshold are set to 0 for both pred and target,
+    and errors < abs_tol are set to 0,
+    then RMSE is calculated over the full masked domain.
     """
     pred = ensure_4d_pt(pred)
     target = ensure_4d_pt(target)
@@ -270,7 +273,8 @@ def cal_nse_threshold_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.T
     """
     NSE with physical threshold.
 
-    Calculate NSE when target >= threshold
+    Values < threshold are set to 0 for both pred and target,
+    then NSE is calculated over the full masked domain.
     """
     pred = ensure_4d_pt(pred)
     target = ensure_4d_pt(target)
@@ -303,9 +307,9 @@ def cal_nse_threshold_tolerant_pt(pred: torch.Tensor, target: torch.Tensor, mask
     """
     NSE with physical threshold + error tolerance.
 
-    Numerator only counts cells where mask > 0 and |pred - target| >= abs_tol and target >= threshold.
+    Numerator only counts cells where mask == 1 and |pred - target| >= abs_tol and setting values < threshold to 0.
 
-    Denominator is the variance of target when target >= threshold.
+    Denominator is the variance of target when setting values < threshold to 0.
     """
     pred = ensure_4d_pt(pred)
     target = ensure_4d_pt(target)
@@ -669,6 +673,20 @@ def cal_nse_threshold_tolerant_np_safe(pred: np.ndarray, target: np.ndarray, mas
     if reduction == "none":
         return nse
     return float(nse.mean())
+
+
+@METRIC_REGISTRY.register()
+def cal_nse_depth_threshold_pt(pred, target, mask,
+                               reduction: str = "mean", eps: float = 1e-12):
+    return cal_nse_threshold_pt(pred, target, mask,
+                                reduction=reduction, eps=eps, threshold=0.05)
+
+
+@METRIC_REGISTRY.register()
+def cal_nse_depth_threshold_tolerant_pt(pred, target, mask,
+                                        reduction: str = "mean", eps: float = 1e-12):
+    return cal_nse_threshold_tolerant_pt(pred, target, mask,
+                                         reduction=reduction, eps=eps, threshold=0.05, abs_tol=0.01)
 
 
 @METRIC_REGISTRY.register()

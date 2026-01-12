@@ -924,8 +924,8 @@ class UpsampleOneStep(nn.Sequential):
 
 
 @ARCH_REGISTRY.register()
-class FloodMapPFT(nn.Module):
-    r""" FloodMapPFT
+class FloodMapPFTOLD(nn.Module):
+    r""" FloodMapPFTOLD
         A PyTorch impl of : `Progressive Focused Transformer for Single Image Super-Resolution`.
 
     Args:
@@ -1005,9 +1005,6 @@ class FloodMapPFT(nn.Module):
             raise RuntimeError(f'[ERROR] yml.upsample ({self.upsampler}) needs to be "pixelshuffle" or '
                                f'"pixelshuffledirect"')
         self.conv_static_f = nn.Sequential(*downs, nn.Conv2d(self.static_in_ch, num_feat, 3, 1, 1))
-
-        self.gn_coarse = nn.GroupNorm(num_groups=8, num_channels=num_feat)
-        self.gn_static = nn.GroupNorm(num_groups=8, num_channels=num_feat)
 
         self.conv_first = nn.Conv2d(2 * num_feat, embed_dim, 3, 1, 1)
 
@@ -1225,9 +1222,7 @@ class FloodMapPFT(nn.Module):
 
         # Multi-Resolution Shallow Feature Fusion and Extraction Module
         coarse_fm = self.conv_coarse_fm(coarse_fm)  # [B, 64, Hc, Hc]
-        coarse_fm = self.gn_coarse(coarse_fm)
         static_f = self.conv_static_f(static_f)  # [B, 64, Hc, Hc]
-        static_f = self.gn_static(static_f)
         x_fm_st = torch.cat([coarse_fm, static_f], dim=1)
         x = self.conv_first(x_fm_st)
         x_rc = x
@@ -1314,7 +1309,7 @@ class FloodMapPFT(nn.Module):
 
 if __name__ == '__main__':
     upscale = 2
-    model = FloodMapPFT(
+    model = FloodMapPFTOLD(
         upscale=2,
         flood_map_size=64,
         embed_dim=240,

@@ -39,6 +39,10 @@ def cal_zscore(x, mean, std):
     return (x - mean) / (std + 1e-12)
 
 
+def cal_minmaxnorm(x, vmin, vmax):
+    return (x - vmin) / (vmax - vmin + 1e-12)
+
+
 def percentile_clip(x, lo, hi):
     if x.size == 0 or np.isnan(lo) or np.isnan(hi):
         return x
@@ -240,14 +244,58 @@ def cal_stats_on_train(rows, train_ids_set, var='static'):
         raise ValueError(f'[ERROR] Unknown var: {var}. Expected "static", "h", "u", or "v".')
 
 
-def destand_to_physical(z, var, stats_var):
+def destand_to_physical(z, var, stats_var, transform, h_asinh_q):
     # z: [N, 1, Hf, Wf] model output with standardization
-    mean = torch.tensor(stats_var['coarse']['mean'], device=z.device, dtype=z.dtype)
-    std = torch.tensor(stats_var['coarse']['std'], device=z.device, dtype=z.dtype)
-    x = z * std + mean
-    if var == 'h':
-        return torch.expm1(x)  # exp(x) - 1
+    if var == 'h' and transform == 'asinh':
+        qk = str(int(h_asinh_q))
+        S = stats_var['asinh_by_q'][qk]['shared']
+        s_val = stats_var['asinh_by_q'][qk]['s']
     else:
-        s = torch.tensor(stats_var['coarse']['asinh_scale'], device=z.device, dtype=z.dtype)
+        S = stats_var['shared']
+        s_val = None
+    mean = torch.tensor(S['mean'], device=z.device, dtype=z.dtype)
+    std = torch.tensor(S['std'], device=z.device, dtype=z.dtype)
+    x = z * std + mean
+
+    if var == 'h':
+        if transform == 'asinh':
+            s = torch.tensor(float(s_val), device=z.device, dtype=z.dtype)
+            return s * torch.sinh(x)
+        else:
+            return torch.expm1(x)
+    else:
+        s_key = 'asinh_scale_shared' if ('asinh_scale_shared' in S) else 'asinh_scale'
+        s_val = S.get(s_key, 1.0)
+        if (s_val is None) or (not np.isfinite(float(s_val))) or (float(s_val) <= 0):
+            s_val = 1.0
+        s = torch.tensor(float(s_val), device=z.device, dtype=z.dtype)
+        return s * torch.sinh(x)
+
+
+def denorm_to_physical(z, var, stats_var, transform, h_asinh_q):
+    if var == 'h' and transform == 'asinh':
+        qk = str(int(h_asinh_q))
+        S = stats_var['asinh_by_q'][qk]['shared']
+        s_val = stats_var['asinh_by_q'][qk]['s']
+    else:
+        S = stats_var['shared']
+        s_val = None
+
+    vmin = torch.tensor(S['min'], device=z.device, dtype=z.dtype)
+    vmax = torch.tensor(S['max'], device=z.device, dtype=z.dtype)
+    x = z * (vmax - vmin) + vmin
+
+    if var == 'h':
+        if transform == 'asinh':
+            s = torch.tensor(float(s_val), device=z.device, dtype=z.dtype)
+            return s * torch.sinh(x)
+        else:
+            return torch.expm1(x)
+    else:
+        s_key = 'asinh_scale_shared' if ('asinh_scale_shared' in S) else 'asinh_scale'
+        s_val = S.get(s_key, 1.0)
+        if (s_val is None) or (not np.isfinite(float(s_val))) or (float(s_val) <= 0):
+            s_val = 1.0
+        s = torch.tensor(float(s_val), device=z.device, dtype=z.dtype)
         return s * torch.sinh(x)
 

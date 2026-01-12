@@ -8,7 +8,8 @@ from .misc import check_resume, get_time_str, make_exp_dirs, mkdir_and_rename, s
     scandir_SIDD
 from .options import yaml_load
 from .stats_util import cal_percentile, cal_mean_std, cal_log1p, cal_zscore, percentile_clip, load_npy_shape, \
-    load_index_csv, group_by_scenario, cal_stats_on_train, check_required_fields, cal_asinh_p90, destand_to_physical
+    load_index_csv, group_by_scenario, cal_stats_on_train, check_required_fields, cal_asinh_p90, destand_to_physical, \
+    cal_minmaxnorm, denorm_to_physical
 
 __all__ = [
     #  color_util.py
@@ -53,6 +54,7 @@ __all__ = [
     'cal_mean_std',
     'cal_log1p',
     'cal_zscore',
+    'cal_minmaxnorm',
     'percentile_clip',
     'load_npy_shape',
     'load_index_csv',
@@ -60,5 +62,6 @@ __all__ = [
     'cal_stats_on_train',
     'check_required_fields',
     'cal_asinh_p90',
-    'destand_to_physical'
+    'destand_to_physical',
+    'denorm_to_physical'
 ]

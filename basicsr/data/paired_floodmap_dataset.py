@@ -21,7 +21,8 @@ datasets:
     stats:
       calculate_if_missing: false
       use_clip_coarse: false
-      use_clip_static: true
+      use_clip_static: false
+      norm: zscore  # or "minmax"
 
     use_hflip: true
     use_rot: true
@@ -51,6 +52,9 @@ datasets:
       split_stats_json: /.../dataset_patches/split_stats.json
     stats:
       calculate_if_missing: false
+      use_clip_coarse: false
+      use_clip_static: false
+      norm: zscore  # or "minmax"
 
     num_worker_per_gpu: 2
     batch_size_per_gpu: 1
@@ -79,6 +83,9 @@ datasets:
       seed: 2025
     stats:
       calculate_if_missing: false   # 防止在 test 上重算（避免数据泄露）
+      use_clip_coarse: false
+      use_clip_static: false
+      norm: zscore  # or "minmax"
 
     # test 不做增强（即使写了 use_hflip/use_rot，也会被 phase=test 屏蔽）
     use_hflip: false
@@ -101,7 +108,7 @@ import torch
 from torch.utils import data as data
 
 from basicsr.utils import (
-    cal_log1p, cal_zscore, cal_asinh_p90, group_by_scenario,
+    cal_log1p, cal_zscore, cal_minmaxnorm, cal_asinh_p90, group_by_scenario,
     percentile_clip, load_npy_shape, load_index_csv,
     cal_stats_on_train, check_required_fields
 )
@@ -163,8 +170,17 @@ class PairedFloodMapDataset(data.Dataset):
 
         stats_cfg = opt.get('stats', {}) or {}
         self.calculate_if_missing = bool(stats_cfg.get('calculate_if_missing', True))
-        self.use_clip_coarse = bool(stats_cfg.get('use_clip_coarse', True))
-        self.use_clip_static = bool(stats_cfg.get('use_clip_static', True))
+        self.use_clip_coarse = bool(stats_cfg.get('use_clip_coarse', False))
+        self.use_clip_static = bool(stats_cfg.get('use_clip_static', False))
+        self.norm = str(stats_cfg.get('norm', 'zscore')).lower()
+        assert self.norm in ('zscore', 'minmax'), f"[ERROR] stats.norm must be zscore/minmax, got {self.norm}"
+
+        self.transform = str(stats_cfg.get('transform', 'log1p')).lower().strip()
+        self.h_asinh_q = int(stats_cfg.get('h_asinh_q', 90))
+        if self.target_var in ('u', 'v'):
+            self.transform = 'asinh'
+        else:
+            assert self.transform in ('log1p', 'asinh'), f"[ERROR] stats.transform must be log1p/asinh for h, got {self.transform}"
 
         all_rows = load_index_csv(self.index_csv)
         rows = [r for r in all_rows if int(r['filtered_out']) == 0 and str(r.get('var', '')).lower() == self.target_var]
@@ -327,37 +343,69 @@ class PairedFloodMapDataset(data.Dataset):
         S_var = self.stats_var
 
         if self.target_var == 'h':
-            cfm = cal_log1p(coarse_fm)
-            if self.use_clip_coarse:
-                cfm = percentile_clip(cfm, S_var['coarse']['p1'], S_var['coarse']['p99'])
-            cfm = cal_zscore(cfm, S_var['coarse']['mean'], S_var['coarse']['std'])
+            if self.transform == 'log1p':
+                S_shared = S_var['shared']
+                cfm = cal_log1p(coarse_fm)
+                ffm = cal_log1p(fine_fm)
+            elif self.transform == 'asinh':
+                qk = str(self.h_asinh_q)
+                asinh_stats = S_var['asinh_by_q'][qk]
+                S_shared = asinh_stats['shared']
+                s_val = float(asinh_stats['s'])
+                cfm = cal_asinh_p90(coarse_fm, s_val)
+                ffm = cal_asinh_p90(fine_fm, s_val)
+            else:
+                assert self.transform in ('log1p', 'asinh'), f"[ERROR] stats.transform must be log1p/asinh for h, got {self.transform}"
 
-            ffm = cal_log1p(fine_fm)
-            ffm = cal_zscore(ffm, S_var['coarse']['mean'], S_var['coarse']['std'])
+            if self.use_clip_coarse:
+                cfm = percentile_clip(cfm, S_shared['p1'], S_shared['p99'])
+                ffm = percentile_clip(ffm, S_shared['p1'], S_shared['p99'])
+            if self.norm == 'zscore':
+                cfm = cal_zscore(cfm, S_shared['mean'], S_shared['std'])
+                ffm = cal_zscore(ffm, S_shared['mean'], S_shared['std'])
+            else:
+                cfm = cal_minmaxnorm(cfm, S_shared['min'], S_shared['max'])
+                ffm = cal_minmaxnorm(ffm, S_shared['min'], S_shared['max'])
+
         else:
-            s = S_var['coarse']['asinh_scale']
+            S_shared = S_var['shared']
+            s = float(S_shared['asinh_scale_shared'])
             cfm = cal_asinh_p90(coarse_fm, s)
-            if self.use_clip_coarse:
-                cfm = percentile_clip(cfm, S_var['coarse']['p1'], S_var['coarse']['p99'])
-            cfm = cal_zscore(cfm, S_var['coarse']['mean'], S_var['coarse']['std'])
-
             ffm = cal_asinh_p90(fine_fm, s)
-            ffm = cal_zscore(ffm, S_var['coarse']['mean'], S_var['coarse']['std'])
+
+            if self.use_clip_coarse:
+                cfm = percentile_clip(cfm, S_shared['p1'], S_shared['p99'])
+                ffm = percentile_clip(ffm, S_shared['p1'], S_shared['p99'])
+            if self.norm == 'zscore':
+                cfm = cal_zscore(cfm, S_shared['mean'], S_shared['std'])
+                ffm = cal_zscore(ffm, S_shared['mean'], S_shared['std'])
+            else:
+                cfm = cal_minmaxnorm(cfm, S_shared['min'], S_shared['max'])
+                ffm = cal_minmaxnorm(ffm, S_shared['min'], S_shared['max'])
 
         e = elev
         if self.use_clip_static:
             e = percentile_clip(e, S_static['elevation']['p1'], S_static['elevation']['p99'])
-        e = cal_zscore(e, S_static['elevation']['mean'], S_static['elevation']['std'])
+        if self.norm == 'zscore':
+            e = cal_zscore(e, S_static['elevation']['mean'], S_static['elevation']['std'])
+        else:
+            e = cal_minmaxnorm(e, S_static['elevation']['min'], S_static['elevation']['max'])
 
         rgh = rough
         if self.use_clip_static:
             rgh = percentile_clip(rgh, S_static['roughness']['p1'], S_static['roughness']['p99'])
-        rgh = cal_zscore(rgh, S_static['roughness']['mean'], S_static['roughness']['std'])
+        if self.norm == 'zscore':
+            rgh = cal_zscore(rgh, S_static['roughness']['mean'], S_static['roughness']['std'])
+        else:
+            rgh = cal_minmaxnorm(rgh, S_static['roughness']['min'], S_static['roughness']['max'])
 
         tf = twi
         if self.use_clip_static:
             tf = percentile_clip(tf, S_static['twi']['p1'], S_static['twi']['p99'])
-        tf = cal_zscore(tf, S_static['twi']['mean'], S_static['twi']['std'])
+        if self.norm == 'zscore':
+            tf = cal_zscore(tf, S_static['twi']['mean'], S_static['twi']['std'])
+        else:
+            tf = cal_minmaxnorm(tf, S_static['twi']['min'], S_static['twi']['max'])
 
         slp = (slope / 90.0)
         a_sin = asin

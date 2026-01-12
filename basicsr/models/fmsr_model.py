@@ -9,7 +9,7 @@ from tqdm import tqdm
 from basicsr.archs import build_network
 from basicsr.losses import build_loss
 from basicsr.metrics import calculate_metric
-from basicsr.utils import get_root_logger, destand_to_physical
+from basicsr.utils import get_root_logger, destand_to_physical, denorm_to_physical
 from basicsr.utils.registry import MODEL_REGISTRY
 from .base_model import BaseModel
 
@@ -242,8 +242,17 @@ class FMSRModel(BaseModel):
 
         stats_var = getattr(dataloader.dataset, 'stats_var', None)
         var_name = getattr(dataloader.dataset, 'target_var', 'h')
+        norm = str(getattr(dataloader.dataset, 'norm', 'zscore')).lower()
+        transform = str(getattr(dataloader.dataset, 'transform', 'log1p')).lower()
+        h_asinh_q = getattr(dataloader.dataset, 'h_asinh_q', 90)
         if stats_var is None:
-            raise RuntimeError(f'[ERROR] Validation needs dataset.stats_var for de-standardization.')
+            raise RuntimeError(f'[ERROR] Validation needs dataset.stats_var for de-standardization/de-normalization.')
+        if norm == 'zscore':
+            to_phy = destand_to_physical
+        elif norm == 'minmax':
+            to_phy = denorm_to_physical
+        else:
+            assert norm in ('zscore', 'minmax'), f"[ERROR] stats.norm must be zscore/minmax, got {norm}"
 
         if use_pbar:
             pbar = tqdm(total=len(dataloader), unit='flood_map')
@@ -257,8 +266,8 @@ class FMSRModel(BaseModel):
             eval_mask = self.static_f[:, -1:, ...]
 
             with torch.no_grad():
-                pred_phy = destand_to_physical(self.output, var_name, stats_var)
-                simu_phy = destand_to_physical(self.fine_fm, var_name, stats_var)
+                pred_phy = to_phy(self.output, var_name, stats_var, transform, h_asinh_q)
+                simu_phy = to_phy(self.fine_fm, var_name, stats_var, transform, h_asinh_q)
 
             if with_metrics:
                 for name, opt_ in self.opt['val']['metrics'].items():
