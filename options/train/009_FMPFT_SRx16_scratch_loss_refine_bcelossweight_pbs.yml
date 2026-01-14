@@ -104,6 +104,7 @@ network_g:
 path:
   pretrain_network_g: /esi/project/niwa04345/luoz/AIFloodModel/experiments/009_FMPFT_SRx16_scratch_loss_pbs/models/net_g_100000.pth
   strict_load_g: true
+  resume_state: ~
 
 # training settings
 train:
