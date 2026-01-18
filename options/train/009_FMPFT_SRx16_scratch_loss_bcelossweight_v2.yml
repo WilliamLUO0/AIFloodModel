@@ -1,5 +1,5 @@
 # general settings
-name: 009_FMPFT_SRx16_scratch_loss_bcelossweight
+name: 009_FMPFT_SRx16_scratch_loss_bcelossweight_v2
 model_type: FMSRModel
 scale: 16
 num_gpu: 4
@@ -145,7 +145,7 @@ train:
     eps: 1.0e-12
   flood_bce_opt:
     type: MaskBCELoss
-    loss_weight: 0.5
+    loss_weight: 0.1
     tau_flood_m: 0.05
     tau_is_physical: true
     var: 'h'

@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=fmpft_sr16_gpu4_009_FMPFT_SRx16_scratch_loss_bcelossweight
+#SBATCH --job-name=fmpft_sr16_gpu4_009_FMPFT_SRx16_scratch_loss_bcelossweight_v2
 #SBATCH --account=uoa04425
 #SBATCH --partition=milan,genoa
 #SBATCH --nodes=1
@@ -30,6 +30,6 @@ export PYTHONUNBUFFERED=1
 nvidia-smi
 
 srun torchrun --nproc_per_node=4 --standalone \
-  basicsr/train_flood_map_v2.py -opt options/train/009_FMPFT_SRx16_scratch_loss_bcelossweight.yml \
+  basicsr/train_flood_map_v2.py -opt options/train/009_FMPFT_SRx16_scratch_loss_bcelossweight_v2.yml \
   --launcher pytorch --auto_resume
 

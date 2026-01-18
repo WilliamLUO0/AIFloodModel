@@ -1,5 +1,5 @@
 # general settings
-name: 009_FMPFT_SRx16_scratch_loss_bcelossweight
+name: 010_FMPFT_SRx16_scratch_l1lossonly_pbs
 model_type: FMSRModel
 scale: 16
 num_gpu: 4
@@ -13,8 +13,8 @@ datasets:
   train:
     name: FloodMapSR-Train-h
     type: PairedFloodMapDataset
-    dataroot: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_backup
-    index_csv: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_backup/index.csv
+    dataroot: /esi/project/niwa04345/luoz/AIFloodModel/dataset_backup
+    index_csv: /esi/project/niwa04345/luoz/AIFloodModel/dataset_backup/index.csv
     io_backend:
       type: disk
 
@@ -30,7 +30,7 @@ datasets:
       by: scenario
       val_ratio: 0.2
       seed: 61
-      split_stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_backup/split_stats_h_asinh.json
+      split_stats_json: /esi/project/niwa04345/luoz/AIFloodModel/dataset_backup/split_stats_h_asinh.json
     stats:
       calculate_if_missing: false
       use_clip_coarse: false
@@ -50,8 +50,8 @@ datasets:
   val_1:
     name: FloodMapSR-Val-h
     type: PairedFloodMapDataset
-    dataroot: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_backup
-    index_csv: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_backup/index.csv
+    dataroot: /esi/project/niwa04345/luoz/AIFloodModel/dataset_backup
+    index_csv: /esi/project/niwa04345/luoz/AIFloodModel/dataset_backup/index.csv
     io_backend:
       type: disk
 
@@ -65,7 +65,7 @@ datasets:
       by: scenario
       val_ratio: 0.2
       seed: 61
-      split_stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_backup/split_stats_h_asinh.json
+      split_stats_json: /esi/project/niwa04345/luoz/AIFloodModel/dataset_backup/split_stats_h_asinh.json
     stats:
       calculate_if_missing: false
       use_clip_coarse: false
@@ -133,7 +133,7 @@ train:
     transform: asinh
     h_asinh_q: 90
     norm: zscore
-    stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_backup/split_stats_h_asinh.json
+    stats_json: /esi/project/niwa04345/luoz/AIFloodModel/dataset_backup/split_stats_h_asinh.json
     use_wet_weight: true
     wet_lambda: 2.0
     use_depth_weight: true
@@ -141,23 +141,6 @@ train:
     depth_mode: exp
     depth_scale: 1.5
     weight_max: 20.0
-    ignore_zero_mask: true
-    eps: 1.0e-12
-  flood_bce_opt:
-    type: MaskBCELoss
-    loss_weight: 0.5
-    tau_flood_m: 0.05
-    tau_is_physical: true
-    var: 'h'
-    transform: asinh
-    h_asinh_q: 90
-    norm: zscore
-    stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_backup/split_stats_h_asinh.json
-    use_pos_weight: true
-    pos_weight_min: 0.5
-    pos_weight_max: 20.0
-    focal_gamma: 0.0
-    alpha_pos: 0.75
     ignore_zero_mask: true
     eps: 1.0e-12
 

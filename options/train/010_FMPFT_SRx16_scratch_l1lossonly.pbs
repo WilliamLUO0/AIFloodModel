@@ -1,0 +1,38 @@
+#!/bin/bash
+#PBS -q a100q
+#PBS -l select=1:ncpus=56:ngpus=4:mem=100GB:nodepool=a100p
+#PBS -l walltime=84:00:00
+#PBS -N fmpft_sr16_gpu4_010_FMPFT_SRx16_scratch_l1lossonly_pbs
+#PBS -S /bin/bash
+#PBS -o /esi/project/niwa04345/luoz/AIFloodModel/logs/
+#PBS -e /esi/project/niwa04345/luoz/AIFloodModel/logs/
+#PBS -m abe
+#PBS -M williamlzh00@gmail.com
+
+set -euo pipefail
+
+mkdir -p /esi/project/niwa04345/luoz/AIFloodModel/logs
+
+cd /esi/project/niwa04345/luoz/AIFloodModel
+
+. $(ls /opt/niwa/profile/spack_* | tail -1)
+spack load cuda@12.8.0
+spack load gcc@12.2.0
+
+. $(ls /opt/niwa/profile/conda_* | tail -1)
+set +u
+conda activate /esi/project/niwa04345/luoz/envs/pft39
+set -u
+
+export OMP_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export NUMEXPR_NUM_THREADS=1
+export TORCH_NUM_THREADS=1
+export PYTHONUNBUFFERED=1
+
+nvidia-smi
+
+torchrun --nproc_per_node=4 --standalone \
+  basicsr/train_flood_map_v2.py -opt options/train/010_FMPFT_SRx16_scratch_l1lossonly_pbs.yml \
+  --launcher pytorch --auto_resume
