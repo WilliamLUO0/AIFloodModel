@@ -64,6 +64,11 @@ class FMSRModel(BaseModel):
         else:
             self.loss_flood = None
 
+        if train_opt.get('prev_opt'):
+            self.loss_prev = build_loss(train_opt['prev_opt']).to(self.device)
+        else:
+            self.loss_prev = None
+
         self.setup_optimizers()
         self.setup_schedulers()
 
@@ -180,6 +185,11 @@ class FMSRModel(BaseModel):
             l_total += l_bce
             loss_dict['l_bce'] = l_bce
 
+        if self.loss_prev is not None:
+            l_prev = self.loss_prev(self.output_flood_logit, self.fine_fm, mask=self.mask)
+            l_total += l_prev
+            loss_dict['l_prev'] = l_prev
+
         l_total.backward()
         self.optimizer_g.step()
         self.log_dict = self.reduce_loss_dict(loss_dict)
@@ -268,6 +278,9 @@ class FMSRModel(BaseModel):
             with torch.no_grad():
                 pred_phy = to_phy(self.output, var_name, stats_var, transform, h_asinh_q)
                 simu_phy = to_phy(self.fine_fm, var_name, stats_var, transform, h_asinh_q)
+                if var_name == 'h':
+                    pred_phy = pred_phy.clamp_min(0.0)
+                    simu_phy = simu_phy.clamp_min(0.0)
 
             if with_metrics:
                 for name, opt_ in self.opt['val']['metrics'].items():

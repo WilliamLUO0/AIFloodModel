@@ -1,6 +1,6 @@
 """
 network_g:
-  type: FloodMapPFT
+  type: FloodMapPFTV3
   upscale: 16
   coarse_in_chans: 1
   static_in_chans: 7
@@ -924,8 +924,8 @@ class UpsampleOneStep(nn.Sequential):
 
 
 @ARCH_REGISTRY.register()
-class FloodMapPFTOLD(nn.Module):
-    r""" FloodMapPFTOLD
+class FloodMapPFTV3(nn.Module):
+    r""" FloodMapPFTV3
         A PyTorch impl of : `Progressive Focused Transformer for Single Image Super-Resolution`.
 
     Args:
@@ -972,6 +972,8 @@ class FloodMapPFTOLD(nn.Module):
                  use_shallow_act=True,
                  use_aoi_gate=True,
                  aoi_alpha=0.8,
+                 couple_mode="detach",
+                 couple_eps=0.2,
                  **kwargs):
         super().__init__()
         num_in_ch = coarse_in_chans
@@ -984,6 +986,10 @@ class FloodMapPFTOLD(nn.Module):
         self.use_shallow_act = use_shallow_act
         self.use_aoi_gate = use_aoi_gate
         self.aoi_alpha = aoi_alpha
+
+        self.couple_mode = str(couple_mode).lower().strip()
+        self.couple_eps = couple_eps
+        assert self.couple_mode in ("detach", "coupled", "none")
 
         # -------------------- 1. Multi-Resolution Shallow Feature Fusion and Extraction Module -------------------- #
         # self.conv_first = nn.Conv2d(num_in_ch, embed_dim, 3, 1, 1)
@@ -1005,6 +1011,9 @@ class FloodMapPFTOLD(nn.Module):
             raise RuntimeError(f'[ERROR] yml.upsample ({self.upsampler}) needs to be "pixelshuffle" or '
                                f'"pixelshuffledirect"')
         self.conv_static_f = nn.Sequential(*downs, nn.Conv2d(self.static_in_ch, num_feat, 3, 1, 1))
+
+        self.gn_coarse = nn.GroupNorm(num_groups=8, num_channels=num_feat)
+        self.gn_static = nn.GroupNorm(num_groups=8, num_channels=num_feat)
 
         self.conv_first = nn.Conv2d(2 * num_feat, embed_dim, 3, 1, 1)
 
@@ -1222,7 +1231,9 @@ class FloodMapPFTOLD(nn.Module):
 
         # Multi-Resolution Shallow Feature Fusion and Extraction Module
         coarse_fm = self.conv_coarse_fm(coarse_fm)  # [B, 64, Hc, Hc]
+        coarse_fm = self.gn_coarse(coarse_fm)
         static_f = self.conv_static_f(static_f)  # [B, 64, Hc, Hc]
+        static_f = self.gn_static(static_f)
         x_fm_st = torch.cat([coarse_fm, static_f], dim=1)
         x = self.conv_first(x_fm_st)
         x_rc = x
@@ -1257,6 +1268,12 @@ class FloodMapPFTOLD(nn.Module):
         # x = x[..., :Hc * self.upscale, :Wc * self.upscale]
         depth = depth[..., :Hc * self.upscale, :Wc * self.upscale]
         flood_logit = flood_logit[..., :Hc * self.upscale, :Wc * self.upscale]
+
+        if self.couple_mode != "none":
+            p = torch.sigmoid(flood_logit)
+            if self.couple_mode == "detach":
+                p = p.detach()
+            depth = depth * (self.couple_eps + (1 - self.couple_eps) * p)
 
         return depth, flood_logit
 
@@ -1309,7 +1326,7 @@ class FloodMapPFTOLD(nn.Module):
 
 if __name__ == '__main__':
     upscale = 2
-    model = FloodMapPFTOLD(
+    model = FloodMapPFTV3(
         upscale=2,
         flood_map_size=64,
         embed_dim=240,
