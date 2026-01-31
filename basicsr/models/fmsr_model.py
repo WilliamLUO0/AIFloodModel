@@ -246,9 +246,11 @@ class FMSRModel(BaseModel):
             if not hasattr(self, 'metric_results'):
                 # execute in the first run
                 self.metric_results = {metric: 0 for metric in self.opt['val']['metrics'].keys()}
+                self.metric_counts = {metric: 0 for metric in self.opt['val']['metrics'].keys()}
             self._initialize_best_metric_results(dataset_name)
             # reset current metrics
             self.metric_results = {metric: 0 for metric in self.metric_results}
+            self.metric_counts = {metric: 0 for metric in self.metric_counts}
 
         stats_var = getattr(dataloader.dataset, 'stats_var', None)
         var_name = getattr(dataloader.dataset, 'target_var', 'h')
@@ -291,8 +293,17 @@ class FMSRModel(BaseModel):
                         opt_clean
                     )
                     if torch.is_tensor(val):
-                        val = val.mean().item()
-                    self.metric_results[name] += float(val)
+                        v = val.detach()
+                        v = v.view(-1)
+                        finite = torch.isfinite(v)
+                        if finite.any():
+                            self.metric_results[name] += v[finite].sum().item()
+                            self.metric_counts[name] += int(finite.sum().item())
+                    else:
+                        fv = float(val)
+                        if np.isfinite(fv):
+                            self.metric_results[name] += fv
+                            self.metric_counts[name] += 1
 
             if save_flood_map:
                 if self.meta is not None and isinstance(self.meta, dict):
@@ -321,9 +332,13 @@ class FMSRModel(BaseModel):
             pbar.close()
 
         if with_metrics:
-            n = idx + 1
             for metric in self.metric_results.keys():
-                self.metric_results[metric] /= n
+                c = self.metric_counts.get(metric, 0)
+                if c > 0:
+                    self.metric_results[metric] /= c
+                else:
+                    self.metric_results[metric] = float("nan")
+
                 self._update_best_metric_result(dataset_name, metric, self.metric_results[metric], current_iter)
 
             self._log_validation_metric_values(current_iter, dataset_name, tb_logger)

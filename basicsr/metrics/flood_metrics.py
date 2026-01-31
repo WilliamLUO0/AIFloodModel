@@ -22,6 +22,7 @@ val:
 
 
 import numpy as np
+from typing import Optional
 import torch
 import torch.nn.functional as F
 
@@ -229,6 +230,66 @@ def cal_rmse_depth_threshold_tolerant_pt(pred, target, mask, reduction: str = "m
 @METRIC_REGISTRY.register()
 def cal_rmse_vel_threshold_tolerant_pt(pred, target, mask, reduction: str = "mean", eps: float = 1e-12):
     return cal_rmse_threshold_tolerant_pt(pred, target, mask, reduction=reduction, eps=eps, threshold=0.1, abs_tol=0.02)
+
+
+@METRIC_REGISTRY.register()
+def cal_rmse_conditional_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
+                            reduction: str = "mean", eps: float = 1e-12,
+                            cond_on_target_ge: Optional[float] = None,
+                            abs_tol: Optional[float] = None):
+    pred = ensure_4d_pt(pred)
+    target = ensure_4d_pt(target)
+    mask = ensure_4d_pt(mask)
+
+    m = mask > 0.5
+    sel = m if cond_on_target_ge is None else (m & (target >= cond_on_target_ge))
+
+    diff = pred - target
+    if abs_tol is not None:
+        diff = torch.where(diff.abs() < abs_tol, torch.zeros_like(diff), diff)
+
+    diff2 = diff ** 2
+    sse = sum_over_hw(diff2 * sel.to(diff2.dtype))
+    n = sum_over_hw(sel.to(diff2.dtype))
+    valid = n > 0.5
+
+    rmse = torch.empty_like(sse)
+    rmse[valid] = torch.sqrt(sse[valid] / n[valid].clamp_min(eps))
+    rmse[~valid] = torch.tensor(float("nan"), device=rmse.device, dtype=rmse.dtype)
+
+    if reduction == "none":
+        return rmse
+
+    # reduction == "mean": 只对 valid 求平均; 如果全无效，返回 nan
+    if valid.any():
+        return rmse[valid].mean().item()
+    else:
+        return float("nan")
+
+
+@METRIC_REGISTRY.register()
+def cal_conditional_rmse_depth_all(pred, target, mask, reduction: str = "none", eps: float = 1e-12):
+    return cal_rmse_conditional_pt(pred, target, mask, reduction=reduction, eps=eps, cond_on_target_ge=None)
+
+
+@METRIC_REGISTRY.register()
+def cal_conditional_rmse_depth_wet(pred, target, mask, reduction: str = "none", eps: float = 1e-12):
+    return cal_rmse_conditional_pt(pred, target, mask, reduction=reduction, eps=eps, cond_on_target_ge=0.05)
+
+
+@METRIC_REGISTRY.register()
+def cal_conditional_rmse_depth_deep(pred, target, mask, reduction: str = "none", eps: float = 1e-12):
+    return cal_rmse_conditional_pt(pred, target, mask, reduction=reduction, eps=eps, cond_on_target_ge=1.0)
+
+
+@METRIC_REGISTRY.register()
+def cal_conditional_rmse_depth_wet_tolerant(pred, target, mask, reduction: str = "none", eps: float = 1e-12):
+    return cal_rmse_conditional_pt(pred, target, mask, reduction=reduction, eps=eps, cond_on_target_ge=0.05, abs_tol=0.01)
+
+
+@METRIC_REGISTRY.register()
+def cal_conditional_rmse_depth_deep_tolerant(pred, target, mask, reduction: str = "none", eps: float = 1e-12):
+    return cal_rmse_conditional_pt(pred, target, mask, reduction=reduction, eps=eps, cond_on_target_ge=1.0, abs_tol=0.01)
 
 
 @METRIC_REGISTRY.register()
