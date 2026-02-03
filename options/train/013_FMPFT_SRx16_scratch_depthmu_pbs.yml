@@ -177,6 +177,26 @@ val:
     rmse_thr_tol:
       type: cal_rmse_depth_threshold_tolerant_pt
       better: lower
+    rmse_all:
+      type: cal_conditional_rmse_depth_all
+      reduction: none
+      better: lower
+    rmse_wet:
+      type: cal_conditional_rmse_depth_wet
+      reduction: none
+      better: lower
+    rmse_wet_tol:
+      type: cal_conditional_rmse_depth_wet_tolerant
+      reduction: none
+      better: lower
+    rmse_deep:
+      type: cal_conditional_rmse_depth_deep
+      reduction: none
+      better: lower
+    rmse_deep_tol:
+      type: cal_conditional_rmse_depth_deep_tolerant
+      reduction: none
+      better: lower
     nse:
       type: cal_nse_pt
       reduction: mean
