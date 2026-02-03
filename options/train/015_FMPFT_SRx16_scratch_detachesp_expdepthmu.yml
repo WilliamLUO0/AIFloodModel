@@ -1,5 +1,5 @@
 # general settings
-name: 013_FMPFT_SRx16_scratch_depthmu_pbs
+name: 015_FMPFT_SRx16_scratch_detachesp_expdepthmu
 model_type: FMSRModel
 scale: 16
 num_gpu: 4
@@ -13,8 +13,8 @@ datasets:
   train:
     name: FloodMapSR-Train-h
     type: PairedFloodMapDataset
-    dataroot: /esi/project/niwa04345/luoz/AIFloodModel/dataset_backup
-    index_csv: /esi/project/niwa04345/luoz/AIFloodModel/dataset_backup/index.csv
+    dataroot: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_backup
+    index_csv: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_backup/index.csv
     io_backend:
       type: disk
 
@@ -30,7 +30,7 @@ datasets:
       by: scenario
       val_ratio: 0.2
       seed: 61
-      split_stats_json: /esi/project/niwa04345/luoz/AIFloodModel/dataset_backup/split_stats_h_asinh.json
+      split_stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_backup/split_stats_h_asinh.json
     stats:
       calculate_if_missing: false
       use_clip_coarse: false
@@ -50,8 +50,8 @@ datasets:
   val_1:
     name: FloodMapSR-Val-h
     type: PairedFloodMapDataset
-    dataroot: /esi/project/niwa04345/luoz/AIFloodModel/dataset_backup
-    index_csv: /esi/project/niwa04345/luoz/AIFloodModel/dataset_backup/index.csv
+    dataroot: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_backup
+    index_csv: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_backup/index.csv
     io_backend:
       type: disk
 
@@ -65,7 +65,7 @@ datasets:
       by: scenario
       val_ratio: 0.2
       seed: 61
-      split_stats_json: /esi/project/niwa04345/luoz/AIFloodModel/dataset_backup/split_stats_h_asinh.json
+      split_stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_backup/split_stats_h_asinh.json
     stats:
       calculate_if_missing: false
       use_clip_coarse: false
@@ -76,7 +76,7 @@ datasets:
 
 # network structures
 network_g:
-  type: FloodMapPFT
+  type: FloodMapPFTV3
   upscale: 16
   coarse_in_chans: 1
   static_in_chans: 7
@@ -84,6 +84,8 @@ network_g:
   use_shallow_act: true
   use_aoi_gate: true
   aoi_alpha: 0.8
+  couple_mode: detach
+  couple_eps: 0.2
   embed_dim: 240
   depths: [4, 4, 4, 6, 6, 6]
   num_heads: 6
@@ -133,7 +135,7 @@ train:
     transform: asinh
     h_asinh_q: 90
     norm: zscore
-    stats_json: /esi/project/niwa04345/luoz/AIFloodModel/dataset_backup/split_stats_h_asinh.json
+    stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_backup/split_stats_h_asinh.json
     use_wet_weight: true
     wet_lambda: 2.0
     use_depth_weight: true
@@ -152,7 +154,7 @@ train:
     transform: asinh
     h_asinh_q: 90
     norm: zscore
-    stats_json: /esi/project/niwa04345/luoz/AIFloodModel/dataset_backup/split_stats_h_asinh.json
+    stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_backup/split_stats_h_asinh.json
     use_pos_weight: true
     pos_weight_min: 0.5
     pos_weight_max: 20.0
@@ -176,6 +178,26 @@ val:
       better: lower
     rmse_thr_tol:
       type: cal_rmse_depth_threshold_tolerant_pt
+      better: lower
+    rmse_all:
+      type: cal_conditional_rmse_depth_all
+      reduction: none
+      better: lower
+    rmse_wet:
+      type: cal_conditional_rmse_depth_wet
+      reduction: none
+      better: lower
+    rmse_wet_tol:
+      type: cal_conditional_rmse_depth_wet_tolerant
+      reduction: none
+      better: lower
+    rmse_deep:
+      type: cal_conditional_rmse_depth_deep
+      reduction: none
+      better: lower
+    rmse_deep_tol:
+      type: cal_conditional_rmse_depth_deep_tolerant
+      reduction: none
       better: lower
     nse:
       type: cal_nse_pt
