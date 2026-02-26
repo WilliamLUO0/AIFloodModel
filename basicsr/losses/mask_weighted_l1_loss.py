@@ -14,6 +14,7 @@ pixel_opt:
   use_depth_weight: false
   ignore_zero_mask: true
   eps: 1.0e-12
+  use_band_loss: false
 
 Example (wet weight only):
 pixel_opt:
@@ -31,8 +32,9 @@ pixel_opt:
   use_depth_weight: false
   ignore_zero_mask: true
   eps: 1.0e-12
+  use_band_loss: false
 
-Example (wet weight + depth weight only):
+Example (wet weight + depth weight):
 pixel_opt:
   type: MaskWeightedL1Loss
   loss_weight: 1.0
@@ -52,6 +54,35 @@ pixel_opt:
   weight_max: 20.0
   ignore_zero_mask: true
   eps: 1.0e-12
+  use_band_loss: false
+
+Example (wet weight + depth weight + band loss):
+pixel_opt:
+  type: MaskWeightedL1Loss
+  loss_weight: 1.0
+  tau_flood_m: 0.05
+  tau_is_physical: true
+  var: 'h'
+  transform: asinh
+  h_asinh_q: 90
+  norm: zscore
+  stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_backup/split_stats_h_asinh.json
+  use_wet_weight: true
+  wet_lambda: 2.0
+  use_depth_weight: true
+  depth_mu: 1.0
+  depth_mode: exp
+  depth_scale: 1.5
+  weight_max: 20.0
+  ignore_zero_mask: true
+  eps: 1.0e-12
+  use_band_loss: true
+  band_lambda: 1.0
+  band_is_physical: true
+  band_delta_m: 0.05
+  band_kernel: gaussian
+  band_sigma_ratio: 0.5
+  band_truncate: true
 """
 
 import math
@@ -82,6 +113,15 @@ class MaskWeightedL1Loss(nn.Module):
 
       w = 1 + wet_lambda * wet + depth_mu * g(target, tau_std)
       g is a depth-strength term (0 at threshold, increases with depth).
+
+    Optional threshold-band loss:
+      Focus on near-threshold region to improve shallow-deep boundary (precision/recall/csi).
+
+      L_band = band_lambda * mean(|pred - target| * band_w * mask)
+
+      band_w can be:
+        - hard band: 1[low<=target<=high]
+        - gaussian: exp(-0.5 * ((target - tau)/sigma)^2)
     """
 
     def __init__(
@@ -107,6 +147,14 @@ class MaskWeightedL1Loss(nn.Module):
         weight_max: float = 20.0,
         ignore_zero_mask: bool = True,
         eps: float = 1e-12,
+
+        use_band_loss: bool = False,
+        band_lambda: float = 1.0,
+        band_is_physical: bool = True,
+        band_delta_m: float = 0.05,
+        band_kernel: str = "gaussian",    # 'gaussian' | 'hard'
+        band_sigma_ratio: float = 0.5,    # sigma = (half_bandwidth_std) * band_sigma_ratio
+        band_truncate: bool = True,
     ):
         super().__init__()
         logger = get_root_logger()
@@ -146,6 +194,18 @@ class MaskWeightedL1Loss(nn.Module):
         self.ignore_zero_mask = bool(ignore_zero_mask)
         self.eps = float(eps)
 
+        self.use_band_loss = bool(use_band_loss)
+        self.band_lambda = float(band_lambda)
+        self.band_is_physical = bool(band_is_physical)
+        self.band_delta_m = float(band_delta_m)
+
+        self.band_kernel = str(band_kernel).lower().strip()
+        if self.band_kernel not in ("gaussian", "hard"):
+            raise ValueError(f"[MaskWeightedL1Loss] band_kernel must be gaussian/hard, got {self.band_kernel}")
+
+        self.band_sigma_ratio = float(band_sigma_ratio)
+        self.band_truncate = bool(band_truncate)
+
         stats_json = str(stats_json).strip()
         if stats_json == "":
             raise ValueError("[MaskWeightedL1Loss] stats_json is required.")
@@ -180,16 +240,44 @@ class MaskWeightedL1Loss(nn.Module):
         tau_std = self._compute_tau_std()
         self.register_buffer("tau_std", torch.tensor(tau_std, dtype=torch.float32))
 
+        if self.use_band_loss:
+            low_std, high_std = self._compute_band_low_high_std(tau_std=float(tau_std))
+            self.register_buffer("band_low_std", torch.tensor(low_std, dtype=torch.float32))
+            self.register_buffer("band_high_std", torch.tensor(high_std, dtype=torch.float32))
+
+            # for gaussian, define sigma in std space
+            halfw = 0.5 * (self.band_high_std - self.band_low_std).abs().clamp_min(self.eps)
+            sigma = (halfw * max(self.band_sigma_ratio, self.eps)).clamp_min(self.eps)
+            self.register_buffer("band_sigma_std", sigma.to(dtype=torch.float32))
+
+        band_low = None
+        band_high = None
+        band_sigma = None
+        if self.use_band_loss:
+            band_low = float(self.band_low_std.item())
+            band_high = float(self.band_high_std.item())
+            if self.band_kernel == "gaussian":
+                band_sigma = float(self.band_sigma_std.item())
+
         logger.info(
             f"[MaskWeightedL1Loss] var={self.var}, transform={self.transform}, norm={self.norm}, "
-            f"h_asinh_q={self.h_asinh_q if (self.var=='h' and self.transform=='asinh') else None}, "
-            f"asinh_scale={self.asinh_scale if self.transform=='asinh' else None}, "
-            f"tau_flood_m={self.tau_flood_m}, tau_std={tau_std:.6f}, "
+            f"h_asinh_q={self.h_asinh_q if (self.var == 'h' and self.transform == 'asinh') else None}, "
+            f"asinh_scale={self.asinh_scale if self.transform == 'asinh' else None}, "
+            f"tau_flood_m={self.tau_flood_m}, tau_std={float(self.tau_std.item()):.6f}, "
             f"use_wet_weight={self.use_wet_weight}, wet_lambda={self.wet_lambda if self.use_wet_weight else None}, "
             f"use_depth_weight={self.use_depth_weight}, depth_mu={self.depth_mu if self.use_depth_weight else None}, "
             f"depth_mode={self.depth_mode if self.use_depth_weight else None}, "
-            f"depth_scale={self.depth_scale if self.use_depth_weight else None}, depth_gamma={self.depth_gamma if self.depth_mode=='power' else None}, "
-            f"weight_clip=[{self.weight_min},{self.weight_max}]"
+            f"depth_scale={self.depth_scale if self.use_depth_weight else None}, "
+            f"depth_gamma={self.depth_gamma if (self.use_depth_weight and self.depth_mode == 'power') else None}, "
+            f"weight_clip=[{self.weight_min},{self.weight_max}], "
+            f"use_band_loss={self.use_band_loss}, band_lambda={self.band_lambda if self.use_band_loss else None}, "
+            f"band_kernel={self.band_kernel if self.use_band_loss else None}, "
+            f"band_is_physical={self.band_is_physical if self.use_band_loss else None}, "
+            f"band_delta_m={self.band_delta_m if self.use_band_loss else None}, "
+            f"band_low_std={band_low}, band_high_std={band_high}, "
+            f"band_truncate={self.band_truncate if self.use_band_loss else None}, "
+            f"band_sigma_ratio={self.band_sigma_ratio if (self.use_band_loss and self.band_kernel == 'gaussian') else None}, "
+            f"band_sigma_std={band_sigma}"
         )
 
     def _transform_physical_scalar(self, x_m: float) -> float:
@@ -209,6 +297,27 @@ class MaskWeightedL1Loss(nn.Module):
             return float(self.tau_flood_m)
         tau_t = self._transform_physical_scalar(self.tau_flood_m)
         return float(self._norm_scalar(tau_t))
+
+    def _compute_band_low_high_std(self, tau_std: float):
+        """
+        Compute [low_std, high_std] in label space for the threshold band.
+        If band_is_physical: band_delta_m is meters, we map [tau-d, tau+d] through transform+norm.
+        Else: band_delta_m is std-space half width.
+        """
+        if not self.band_is_physical:
+            lo = float(tau_std) - float(self.band_delta_m)
+            hi = float(tau_std) + float(self.band_delta_m)
+            return (min(lo, hi), max(lo, hi))
+
+        low_m = max(0.0, float(self.tau_flood_m) - float(self.band_delta_m))
+        high_m = float(self.tau_flood_m) + float(self.band_delta_m)
+
+        low_std = self._norm_scalar(self._transform_physical_scalar(low_m))
+        high_std = self._norm_scalar(self._transform_physical_scalar(high_m))
+
+        lo = min(low_std, high_std)
+        hi = max(low_std, high_std)
+        return (float(lo), float(hi))
 
     # ---------- depth strength g(target, tau_std) ----------
     def _depth_strength(self, target: torch.Tensor) -> torch.Tensor:
@@ -238,9 +347,27 @@ class MaskWeightedL1Loss(nn.Module):
         s = max(self.depth_scale, self.eps)
         return 1.0 - torch.exp(-excess / s)
 
+    def _band_weight(self, target: torch.Tensor) -> torch.Tensor:
+        """
+        Return band weight map in [0,1] (gaussian/hard).
+        Assumes buffers band_low_std/band_high_std exist.
+        """
+        if self.band_kernel == "hard":
+            return ((target >= self.band_low_std) & (target <= self.band_high_std)).to(target.dtype)
+
+        # gaussian centered at tau_std
+        z = (target - self.tau_std) / (self.band_sigma_std + self.eps)
+        w = torch.exp(-0.5 * z * z)
+
+        if self.band_truncate:
+            inside = ((target >= self.band_low_std) & (target <= self.band_high_std)).to(target.dtype)
+            w = w * inside
+        return w
+
     def forward(self, pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor):
         if mask.dim() == 3:
             mask = mask.unsqueeze(1)
+        mask = mask.to(dtype=pred.dtype)
 
         # base L1
         diff = F.l1_loss(pred, target, reduction="none")
@@ -261,18 +388,39 @@ class MaskWeightedL1Loss(nn.Module):
         # clip for stability
         w = w.clamp(self.weight_min, self.weight_max)
 
-        loss_map = diff * w
-        masked = loss_map * mask
+        main_map = diff * w
+        main_masked = main_map * mask
 
         per_sample_num = mask.flatten(1).sum(1)
-        per_sample_loss = masked.flatten(1).sum(1)
+        per_sample_main = main_masked.flatten(1).sum(1)
 
         if self.ignore_zero_mask:
             valid = per_sample_num > 0
             if not valid.any():
                 return pred.new_tensor(0.0)
-            loss = (per_sample_loss[valid] / (per_sample_num[valid] + self.eps)).mean()
+            main_loss = (per_sample_main[valid] / (per_sample_num[valid] + self.eps)).mean()
         else:
-            loss = (per_sample_loss / (per_sample_num + self.eps)).mean()
+            main_loss = (per_sample_main / (per_sample_num + self.eps)).mean()
 
-        return self.loss_weight * loss
+        loss = self.loss_weight * main_loss
+
+        if self.use_band_loss and (self.band_lambda != 0):
+            with torch.no_grad():
+                band_sel = ((target >= self.band_low_std) & (target <= self.band_high_std)).to(diff.dtype)
+                band_w = self._band_weight(target).to(dtype=diff.dtype)
+
+            band_num = (diff * band_w * mask).flatten(1).sum(1)
+            band_den = (band_sel * mask).flatten(1).sum(1)
+
+            if self.ignore_zero_mask:
+                valid = band_den > 0
+                if valid.any():
+                    band_loss = (band_num[valid] / (band_den[valid] + self.eps)).mean()
+                else:
+                    band_loss = pred.new_tensor(0.0)
+            else:
+                band_loss = (band_num / (band_den + self.eps)).mean()
+
+            loss = loss + self.band_lambda * band_loss
+
+        return loss
