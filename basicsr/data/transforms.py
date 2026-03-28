@@ -198,7 +198,7 @@ def augment_flood_map(transform_list, *, target_var: str, use_hflip: bool, use_r
         if do_vflip:
             a = np.ascontiguousarray(a[::-1, :])
         if do_rot90:
-            a = np.ascontiguousarray(a.transpose(1, 0))
+            a = np.ascontiguousarray(np.rot90(a, k=1))
         return a
 
     out = [_augment_flood_map(a) for a in transform_list]
@@ -218,17 +218,18 @@ def augment_flood_map(transform_list, *, target_var: str, use_hflip: bool, use_r
         a_sin = out[idx_asin]
         a_cos = out[idx_acos]
 
-        # hflip: (sin, cos) -> ( sin, -cos )
-        if do_hflip:
-            a_cos = -a_cos
+        # richdem aspect: 0°=North, clockwise
+        # sin = east-west component
+        # cos = north-south component
 
-        # vflip: (sin, cos) -> ( -sin, cos )
-        if do_vflip:
+        if do_hflip:
             a_sin = -a_sin
 
-        # rot90(CCW): (sin, cos) -> ( cos, -sin )
+        if do_vflip:
+            a_cos = -a_cos
+
         if do_rot90:
-            a_sin, a_cos = (a_cos, -a_sin)
+            a_sin, a_cos = -a_cos, a_sin
 
         out[idx_asin] = a_sin
         out[idx_acos] = a_cos

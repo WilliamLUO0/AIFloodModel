@@ -236,13 +236,20 @@ def cal_rmse_vel_threshold_tolerant_pt(pred, target, mask, reduction: str = "mea
 def cal_rmse_conditional_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
                             reduction: str = "mean", eps: float = 1e-12,
                             cond_on_target_ge: Optional[float] = None,
+                            cond_on_target_lt: Optional[float] = None,
                             abs_tol: Optional[float] = None):
     pred = ensure_4d_pt(pred)
     target = ensure_4d_pt(target)
     mask = ensure_4d_pt(mask)
 
     m = mask > 0.5
-    sel = m if cond_on_target_ge is None else (m & (target >= cond_on_target_ge))
+    sel = m
+
+    if cond_on_target_ge is not None:
+        sel = sel & (target >= cond_on_target_ge)
+
+    if cond_on_target_lt is not None:
+        sel = sel & (target < cond_on_target_lt)
 
     diff = pred - target
     if abs_tol is not None:
@@ -273,23 +280,53 @@ def cal_conditional_rmse_depth_all(pred, target, mask, reduction: str = "none", 
 
 
 @METRIC_REGISTRY.register()
-def cal_conditional_rmse_depth_wet(pred, target, mask, reduction: str = "none", eps: float = 1e-12):
-    return cal_rmse_conditional_pt(pred, target, mask, reduction=reduction, eps=eps, cond_on_target_ge=0.05)
+def cal_conditional_rmse_depth_shallow(pred, target, mask, reduction: str = "none", eps: float = 1e-12):
+    return cal_rmse_conditional_pt(pred, target, mask, reduction=reduction, eps=eps, cond_on_target_ge=0.0, cond_on_target_lt=0.05)
 
 
 @METRIC_REGISTRY.register()
-def cal_conditional_rmse_depth_deep(pred, target, mask, reduction: str = "none", eps: float = 1e-12):
-    return cal_rmse_conditional_pt(pred, target, mask, reduction=reduction, eps=eps, cond_on_target_ge=1.0)
+def cal_conditional_rmse_depth_shallow_tolerant(pred, target, mask, reduction: str = "none", eps: float = 1e-12):
+    return cal_rmse_conditional_pt(pred, target, mask, reduction=reduction, eps=eps, cond_on_target_ge=0.0, cond_on_target_lt=0.05, abs_tol=0.01)
+
+
+@METRIC_REGISTRY.register()
+def cal_conditional_rmse_depth_wet(pred, target, mask, reduction: str = "none", eps: float = 1e-12):
+    return cal_rmse_conditional_pt(pred, target, mask, reduction=reduction, eps=eps, cond_on_target_ge=0.05, cond_on_target_lt=1.0)
+
+
+# @METRIC_REGISTRY.register()
+# def cal_conditional_rmse_depth_wet(pred, target, mask, reduction: str = "none", eps: float = 1e-12):
+#     return cal_rmse_conditional_pt(pred, target, mask, reduction=reduction, eps=eps, cond_on_target_ge=0.05)
 
 
 @METRIC_REGISTRY.register()
 def cal_conditional_rmse_depth_wet_tolerant(pred, target, mask, reduction: str = "none", eps: float = 1e-12):
-    return cal_rmse_conditional_pt(pred, target, mask, reduction=reduction, eps=eps, cond_on_target_ge=0.05, abs_tol=0.01)
+    return cal_rmse_conditional_pt(pred, target, mask, reduction=reduction, eps=eps, cond_on_target_ge=0.05, cond_on_target_lt=1.0, abs_tol=0.01)
+
+
+# @METRIC_REGISTRY.register()
+# def cal_conditional_rmse_depth_wet_tolerant(pred, target, mask, reduction: str = "none", eps: float = 1e-12):
+#     return cal_rmse_conditional_pt(pred, target, mask, reduction=reduction, eps=eps, cond_on_target_ge=0.05, abs_tol=0.01)
+
+
+@METRIC_REGISTRY.register()
+def cal_conditional_rmse_depth_deep(pred, target, mask, reduction: str = "none", eps: float = 1e-12):
+    return cal_rmse_conditional_pt(pred, target, mask, reduction=reduction, eps=eps, cond_on_target_ge=1.0, cond_on_target_lt=None)
+
+
+# @METRIC_REGISTRY.register()
+# def cal_conditional_rmse_depth_deep(pred, target, mask, reduction: str = "none", eps: float = 1e-12):
+#     return cal_rmse_conditional_pt(pred, target, mask, reduction=reduction, eps=eps, cond_on_target_ge=1.0)
 
 
 @METRIC_REGISTRY.register()
 def cal_conditional_rmse_depth_deep_tolerant(pred, target, mask, reduction: str = "none", eps: float = 1e-12):
-    return cal_rmse_conditional_pt(pred, target, mask, reduction=reduction, eps=eps, cond_on_target_ge=1.0, abs_tol=0.01)
+    return cal_rmse_conditional_pt(pred, target, mask, reduction=reduction, eps=eps, cond_on_target_ge=1.0, cond_on_target_lt=None, abs_tol=0.01)
+
+
+# @METRIC_REGISTRY.register()
+# def cal_conditional_rmse_depth_deep_tolerant(pred, target, mask, reduction: str = "none", eps: float = 1e-12):
+#     return cal_rmse_conditional_pt(pred, target, mask, reduction=reduction, eps=eps, cond_on_target_ge=1.0, abs_tol=0.01)
 
 
 @METRIC_REGISTRY.register()
@@ -1034,6 +1071,51 @@ def cal_precision_vel_tolerant_pt(pred, target, mask, reduction: str = "mean", e
 
 
 @METRIC_REGISTRY.register()
+def cal_precision_band_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
+                          band_ge: Optional[float] = None, band_lt: Optional[float] = None, reduction: str = "mean", eps: float = 1e-12,):
+    pred = ensure_4d_pt(pred)
+    target = ensure_4d_pt(target)
+    mask = ensure_4d_pt(mask)
+
+    m = mask > 0.5
+
+    p_evt = m
+    t_evt = m
+
+    if band_ge is not None:
+        p_evt = p_evt & (pred >= band_ge)
+        t_evt = t_evt & (target >= band_ge)
+
+    if band_lt is not None:
+        p_evt = p_evt & (pred < band_lt)
+        t_evt = t_evt & (target < band_lt)
+
+    tp = sum_over_hw((p_evt & t_evt).to(pred.dtype))
+    fp = sum_over_hw((p_evt & (~t_evt)).to(pred.dtype))
+
+    prec = tp / (tp + fp + eps)
+
+    if reduction == "none":
+        return prec
+    return prec.mean().item()
+
+
+@METRIC_REGISTRY.register()
+def cal_precision_depth_shallow_pt(pred, target, mask, reduction: str = "mean", eps: float = 1e-12):
+    return cal_precision_band_pt(pred, target, mask, band_ge=0.0, band_lt=0.05, reduction=reduction, eps=eps)
+
+
+@METRIC_REGISTRY.register()
+def cal_precision_depth_wet_band_pt(pred, target, mask, reduction: str = "mean", eps: float = 1e-12):
+    return cal_precision_band_pt(pred, target, mask, band_ge=0.05, band_lt=1.0, reduction=reduction, eps=eps)
+
+
+@METRIC_REGISTRY.register()
+def cal_precision_depth_deep_band_pt(pred, target, mask, reduction: str = "mean", eps: float = 1e-12):
+    return cal_precision_band_pt(pred, target, mask, band_ge=1.0, band_lt=None, reduction=reduction, eps=eps)
+
+
+@METRIC_REGISTRY.register()
 def cal_recall_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
                   threshold: float = 0.05, reduction: str = "mean", eps: float = 1e-12):
     pred = ensure_4d_pt(pred)
@@ -1143,6 +1225,51 @@ def cal_recall_depth_tolerant_pt(pred, target, mask, reduction: str = "mean", ep
 def cal_recall_vel_tolerant_pt(pred, target, mask, reduction: str = "mean", eps: float = 1e-12):
     return cal_recall_tolerant_pt(pred, target, mask,
                                   threshold=0.1, reduction=reduction, eps=eps, abs_tol=0.02)
+
+
+@METRIC_REGISTRY.register()
+def cal_recall_band_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
+                    band_ge: Optional[float] = None, band_lt: Optional[float] = None, reduction: str = "mean", eps: float = 1e-12,):
+    pred = ensure_4d_pt(pred)
+    target = ensure_4d_pt(target)
+    mask = ensure_4d_pt(mask)
+
+    m = mask > 0.5
+
+    p_evt = m
+    t_evt = m
+
+    if band_ge is not None:
+        p_evt = p_evt & (pred >= band_ge)
+        t_evt = t_evt & (target >= band_ge)
+
+    if band_lt is not None:
+        p_evt = p_evt & (pred < band_lt)
+        t_evt = t_evt & (target < band_lt)
+
+    tp = sum_over_hw((p_evt & t_evt).to(pred.dtype))
+    fn = sum_over_hw(((~p_evt) & t_evt).to(pred.dtype))
+
+    rec = tp / (tp + fn + eps)
+
+    if reduction == "none":
+        return rec
+    return rec.mean().item()
+
+
+@METRIC_REGISTRY.register()
+def cal_recall_depth_shallow_pt(pred, target, mask, reduction: str = "mean", eps: float = 1e-12):
+    return cal_recall_band_pt(pred, target, mask, band_ge=0.0, band_lt=0.05, reduction=reduction, eps=eps)
+
+
+@METRIC_REGISTRY.register()
+def cal_recall_depth_wet_band_pt(pred, target, mask, reduction: str = "mean", eps: float = 1e-12):
+    return cal_recall_band_pt(pred, target, mask, band_ge=0.05, band_lt=1.0, reduction=reduction, eps=eps)
+
+
+@METRIC_REGISTRY.register()
+def cal_recall_depth_deep_band_pt(pred, target, mask, reduction: str = "mean", eps: float = 1e-12):
+    return cal_recall_band_pt(pred, target, mask, band_ge=1.0, band_lt=None, reduction=reduction, eps=eps)
 
 
 @METRIC_REGISTRY.register()

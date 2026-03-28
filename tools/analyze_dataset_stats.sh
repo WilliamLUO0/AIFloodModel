@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=analyze_dataset_stats_testdataset_100y42h0c_fine
+#SBATCH --job-name=analyze_dataset_stats_dataset_maxclip_coarse
 #SBATCH --account=uoa04425
 #SBATCH --partition=milan,genoa
 #SBATCH --nodes=1
@@ -25,6 +25,6 @@ export MKL_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 export NUMEXPR_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 
 python tools/analyze_dataset_stats.py \
-  --index-csv /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/testdataset_100y42h0c/index.csv \
-  --out-dir   /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/testdataset_100y42h0c \
-  --var h --grid fine
+  --index-csv /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_maxclip/index.csv \
+  --out-dir   /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_maxclip \
+  --var h --grid coarse

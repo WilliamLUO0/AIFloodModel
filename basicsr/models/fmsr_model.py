@@ -59,6 +59,16 @@ class FMSRModel(BaseModel):
         else:
             raise RuntimeError(f'[ERROR] pixel_opt (MaskL1Loss) is not configured.')
 
+        if train_opt.get('slight_opt'):
+            self.loss_slight = build_loss(train_opt['slight_opt']).to(self.device)
+        else:
+            self.loss_slight = None
+
+        if train_opt.get('deep_opt'):
+            self.loss_deep = build_loss(train_opt['deep_opt']).to(self.device)
+        else:
+            self.loss_deep = None
+
         if train_opt.get('flood_bce_opt'):
             self.loss_flood = build_loss(train_opt['flood_bce_opt']).to(self.device)
         else:
@@ -179,6 +189,16 @@ class FMSRModel(BaseModel):
             l_pix = self.loss_pix(self.output, self.fine_fm, mask=self.mask)
         l_total += l_pix
         loss_dict['l_pix'] = l_pix
+
+        if self.loss_slight is not None:
+            l_slight = self.loss_slight(self.output, self.fine_fm, mask=self.mask)
+            l_total += l_slight
+            loss_dict['l_slight'] = l_slight
+
+        if self.loss_deep is not None:
+            l_deep = self.loss_deep(self.output, self.fine_fm, mask=self.mask)
+            l_total += l_deep
+            loss_dict['l_deep'] = l_deep
 
         if self.loss_flood is not None:
             l_bce = self.loss_flood(self.output_flood_logit, self.fine_fm, mask=self.mask)

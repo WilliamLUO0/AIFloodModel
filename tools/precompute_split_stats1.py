@@ -398,28 +398,30 @@ def compute_h_asinh_candidates_and_stats(
     q_list = sorted(list(dict.fromkeys(q_list)))
 
     H = StreamingHistogram(bins=bins)
-    wet_total = 0
+    total_fine_valid = 0
 
+    # pass 1: min/max for histogram range
     for r in train_rows:
         arr = _load_npy_shape(r['fine_path'], dtype=np.float32)
         m = _load_npy_shape(r['mask_fine_path'], expect_shape=arr.shape, dtype=np.uint8)
-        sel = np.isfinite(arr) & (m == 1) & (arr >= tau)
+        sel = np.isfinite(arr) & (m == 1)
         if not np.any(sel):
             continue
-        xw = arr[sel].astype(np.float64, copy=False)
-        wet_total += int(xw.size)
-        H.update_minmax(xw)
+        x = arr[sel].astype(np.float64, copy=False)
+        total_fine_valid += int(x.size)
+        H.update_minmax(x)
 
     H.allocate()
 
+    # pass 2: histogram counts
     for r in train_rows:
         arr = _load_npy_shape(r['fine_path'], dtype=np.float32)
         m = _load_npy_shape(r['mask_fine_path'], expect_shape=arr.shape, dtype=np.uint8)
-        sel = np.isfinite(arr) & (m == 1) & (arr >= tau)
+        sel = np.isfinite(arr) & (m == 1)
         if not np.any(sel):
             continue
-        xw = arr[sel].astype(np.float64, copy=False)
-        H.update_hist(xw)
+        x = arr[sel].astype(np.float64, copy=False)
+        H.update_hist(x)
 
     s_candidates: Dict[str, float] = {}
     for q in q_list:
@@ -471,8 +473,8 @@ def compute_h_asinh_candidates_and_stats(
         "tau_wet_raw_m": float(tau),
         "h_asinh_scale_candidates": s_candidates,
         "asinh_by_q": asinh_by_q,
-        "wet_total_fine_raw_ge_tau": int(wet_total),
-        "percentile_note": "Quantiles computed via histogram on fine-grid RAW wet pixels (mask_fine==1 & isfinite & h>=tau).",
+        "fine_valid_total_raw": int(total_fine_valid),
+        "percentile_note": "Quantiles computed via histogram on fine-grid RAW valid pixels (mask_fine==1 & isfinite).",
         "stats_note": "All mean/std/min/max are exact streaming stats after transform (Welford).",
     }
     return out
