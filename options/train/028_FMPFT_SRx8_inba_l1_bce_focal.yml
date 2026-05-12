@@ -260,6 +260,7 @@ val:
       cond_on_target_lt: ~
       abs_tol: 0.02
       better: lower
+
     nse:
       type: cal_nse_pt
       reduction: mean
@@ -288,26 +289,32 @@ val:
       threshold: 0.1
       abs_tol: 0.02
       better: higher
+
     csi_thr01:
       type: cal_csi_pt
       threshold: 0.1
       reduction: mean
+      empty_as_nan: true
       better: higher
     csi_thr01_tol:
       type: cal_csi_tolerant_pt
       threshold: 0.1
       reduction: mean
       abs_tol: 0.02
+      empty_as_nan: true
       better: higher
+
     precision_thr01:
       type: cal_precision_pt
       threshold: 0.1
       reduction: mean
+      empty_as_nan: true
       better: higher
     precision_thr01_tol:
       type: cal_precision_tolerant_pt
       threshold: 0.1
       reduction: mean
+      empty_as_nan: true
       abs_tol: 0.02
       better: higher
     precision_nonflood01:
@@ -315,34 +322,41 @@ val:
       band_ge: 0.0
       band_lt: 0.1
       reduction: mean
+      empty_as_nan: true
       better: higher
     precision_slight01_05:
       type: cal_precision_band_pt
       band_ge: 0.1
       band_lt: 0.5
       reduction: mean
+      empty_as_nan: true
       better: higher
     precision_severe05_1:
       type: cal_precision_band_pt
       band_ge: 0.5
       band_lt: 1
       reduction: mean
+      empty_as_nan: true
       better: higher
     precision_extreme1:
       type: cal_precision_band_pt
       band_ge: 1
       band_lt: ~
       reduction: mean
+      empty_as_nan: true
       better: higher
+
     recall_thr01:
       type: cal_recall_pt
       threshold: 0.1
       reduction: mean
+      empty_as_nan: true
       better: higher
     recall_thr01_tol:
       type: cal_recall_tolerant_pt
       threshold: 0.1
       reduction: mean
+      empty_as_nan: true
       abs_tol: 0.02
       better: higher
     recall_nonflood01:
@@ -350,25 +364,30 @@ val:
       band_ge: 0.0
       band_lt: 0.1
       reduction: mean
+      empty_as_nan: true
       better: higher
     recall_slight01_05:
       type: cal_recall_band_pt
       band_ge: 0.1
       band_lt: 0.5
       reduction: mean
+      empty_as_nan: true
       better: higher
     recall_severe05_1:
       type: cal_recall_band_pt
       band_ge: 0.5
       band_lt: 1
       reduction: mean
+      empty_as_nan: true
       better: higher
     recall_extreme1:
       type: cal_recall_band_pt
       band_ge: 1
       band_lt: ~
       reduction: mean
+      empty_as_nan: true
       better: higher
+
     target_prevalence:
       type: cal_prev_t_pt
       threshold: 0.1
@@ -377,6 +396,169 @@ val:
       type: cal_prev_p_pt
       threshold: 0.1
       reduction: mean
+
+  logit_metrics:
+    csi_tau01:
+      type: cal_logit_csi_pt
+      channel: 0
+      target_threshold: 0.1
+      prob_threshold: 0.5
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+    precision_tau01:
+      type: cal_logit_precision_pt
+      channel: 0
+      target_threshold: 0.1
+      prob_threshold: 0.5
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+    recall_tau01:
+      type: cal_logit_recall_pt
+      channel: 0
+      target_threshold: 0.1
+      prob_threshold: 0.5
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+    pred_prevalence_tau01:
+      type: cal_logit_prev_p_pt
+      channel: 0
+      prob_threshold: 0.5
+      reduction: mean
+    target_prevalence_tau01:
+      type: cal_logit_prev_t_pt
+      target_threshold: 0.1
+      reduction: mean
+
+    csi_tau05:
+      type: cal_logit_csi_pt
+      channel: 1
+      target_threshold: 0.5
+      prob_threshold: 0.5
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+    precision_tau05:
+      type: cal_logit_precision_pt
+      channel: 1
+      target_threshold: 0.5
+      prob_threshold: 0.5
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+    recall_tau05:
+      type: cal_logit_recall_pt
+      channel: 1
+      target_threshold: 0.5
+      prob_threshold: 0.5
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+    pred_prevalence_tau05:
+      type: cal_logit_prev_p_pt
+      channel: 1
+      prob_threshold: 0.5
+      reduction: mean
+    target_prevalence_tau05:
+      type: cal_logit_prev_t_pt
+      target_threshold: 0.5
+      reduction: mean
+
+    csi_tau10:
+      type: cal_logit_csi_pt
+      channel: 2
+      target_threshold: 1.0
+      prob_threshold: 0.5
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+    precision_tau10:
+      type: cal_logit_precision_pt
+      channel: 2
+      target_threshold: 1.0
+      prob_threshold: 0.5
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+    recall_tau10:
+      type: cal_logit_recall_pt
+      channel: 2
+      target_threshold: 1.0
+      prob_threshold: 0.5
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+    pred_prevalence_tau10:
+      type: cal_logit_prev_p_pt
+      channel: 2
+      prob_threshold: 0.5
+      reduction: mean
+    target_prevalence_tau10:
+      type: cal_logit_prev_t_pt
+      target_threshold: 1.0
+      reduction: mean
+
+    precision_nonflood01:
+      type: cal_logit_precision_band_pt
+      interval: nonflood
+      prob_threshold: 0.5
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+    recall_nonflood01:
+      type: cal_logit_recall_band_pt
+      interval: nonflood
+      prob_threshold: 0.5
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+
+    precision_slight01_05:
+      type: cal_logit_precision_band_pt
+      interval: slight
+      prob_threshold: 0.5
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+    recall_slight01_05:
+      type: cal_logit_recall_band_pt
+      interval: slight
+      prob_threshold: 0.5
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+
+    precision_severe05_1:
+      type: cal_logit_precision_band_pt
+      interval: severe
+      prob_threshold: 0.5
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+    recall_severe05_1:
+      type: cal_logit_recall_band_pt
+      interval: severe
+      prob_threshold: 0.5
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+
+    precision_extreme1:
+      type: cal_logit_precision_band_pt
+      interval: extreme
+      prob_threshold: 0.5
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+    recall_extreme1:
+      type: cal_logit_recall_band_pt
+      interval: extreme
+      prob_threshold: 0.5
+      reduction: mean
+      empty_as_nan: true
+      better: higher
 
 # logging settings
 logger:
