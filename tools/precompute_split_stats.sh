@@ -25,42 +25,42 @@ export MKL_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 export NUMEXPR_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 
 #python tools/precompute_split_stats.py \
-#  --index_csv /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_backup/index.csv \
-#  --root      /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_backup \
-#  --out_json  /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_backup/split_stats_h_log1p1.json \
+#  --index_csv /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8/index.csv \
+#  --root /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8 \
+#  --out_json /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8/split_stats_h_asinh.json \
 #  --target_var h \
-#  --h_transform log1p \
-#  --h_tau 0.05 \
+#  --aux_vars zs \
+#  --h_transform asinh \
+#  --h_tau 0.1 \
+#  --h_q_list 50,75,90,95,99 \
+#  --h_asinh_scale_scope all \
+#  --compute_h_flood_intervals \
+#  --h_flood_interval_thresholds 0.1,0.5,1.0 \
 #  --by scenario --val_ratio 0.2 --seed 61 \
 #  --bins 8192
 
-python tools/precompute_split_stats1.py \
-  --index_csv /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_maxclip/index.csv \
-  --root      /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_maxclip \
-  --out_json  /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_maxclip/split_stats_h_asinh.json \
+python tools/precompute_split_stats.py \
+  --index_csv /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8/index.csv \
+  --root /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8 \
+  --out_json /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8/split_stats_h_asinh_wet.json \
   --target_var h \
+  --aux_vars zs \
   --h_transform asinh \
   --h_tau 0.1 \
   --h_q_list 50,75,90,95,99 \
+  --h_asinh_scale_scope wet \
+  --compute_h_flood_intervals \
+  --h_flood_interval_thresholds 0.1,0.5,1.0 \
   --by scenario --val_ratio 0.2 --seed 61 \
   --bins 8192
 
 #python tools/precompute_split_stats.py \
-#  --index_csv /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_backup/index.csv \
-#  --root      /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_backup \
-#  --out_json  /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_backup/split_stats_h_asinh2.json \
-#  --target_var h \
-#  --h_transform asinh \
-#  --h_tau 0.1 \
-#  --h_q_list 50,75,90,95,99 \
-#  --by scenario --val_ratio 0.2 --seed 61 \
-#  --bins 8192
-
-#python tools/precompute_split_stats.py \
-#  --index_csv /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_backup/index.csv \
-#  --root      /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_backup \
-#  --out_json  /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_backup/split_stats_v.json \
-#  --target_var v \
+#  --index_csv /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8/index.csv \
+#  --root /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8/dataset \
+#  --out_json /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8/split_stats_u.json \
+#  --target_var u \
 #  --uv_tau 0.1 \
+#  --compute_uv_intervals \
+#  --uv_interval_thresholds 0.1,0.5,1.0 \
 #  --by scenario --val_ratio 0.2 --seed 61 \
 #  --bins 8192

@@ -1,6 +1,6 @@
 """
 Example:
-python tools/precompute_split_stats.py \
+python tools/precompute_split_stats2.py \
   --index_csv /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_backup/index.csv \
   --root      /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_backup \
   --out_json  /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_backup/split_stats_h.json \

@@ -97,7 +97,7 @@ def load_index_csv(path):
 
 def check_required_fields(rows):
     needed = [
-        "coarse_path", "fine_path", "elev_path", "rough_path",
+        "coarse_path", "fine_path", "elev_fine_path", "elev_coarse_path", "rough_path",
         "mask_fine_path", "mask_coarse_path", "slope_path", "twi_path",
         "aspect_sin_path", "aspect_cos_path", "downscale"
     ]

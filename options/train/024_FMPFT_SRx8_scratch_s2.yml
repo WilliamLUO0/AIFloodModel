@@ -1,0 +1,400 @@
+# general settings
+name: 024_FMPFT_SRx8_scratch_s2
+model_type: FMSRModel
+scale: 8
+num_gpu: 4
+manual_seed: 61
+
+# find_unused_parameters needs to be true, otherwise it will affect performance
+find_unused_parameters: true
+
+# dataset and data loader lsettings
+datasets:
+  train:
+    name: FloodMapSR-Train-h
+    type: PairedFloodMapDataset
+    dataroot: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8
+    index_csv: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8/index.csv
+    io_backend:
+      type: disk
+
+    phase: train
+    target_var: h
+    aux_vars: [zs, dem]
+    scale: 8
+    patch_fine: 512
+    patch_coarse: 64
+    use_hflip: true
+    use_rot: true
+
+    split_cfg:
+      by: scenario
+      val_ratio: 0.2
+      seed: 61
+      split_stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8/split_stats_h_asinh_wet.json
+    stats:
+      calculate_if_missing: false
+      use_clip_coarse: false
+      use_clip_static: false
+      norm: zscore
+      transform: asinh
+      h_asinh_q: 90
+
+    # data loader
+    num_worker_per_gpu: 8
+    batch_size_per_gpu: 4
+    dataset_enlarge_ratio: 1
+    prefetch_mode: cuda
+    pin_memory: True
+    persistent_workers: True
+
+  val_1:
+    name: FloodMapSR-Val-h
+    type: PairedFloodMapDataset
+    dataroot: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8
+    index_csv: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8/index.csv
+    io_backend:
+      type: disk
+
+    phase: val
+    target_var: h
+    aux_vars: [zs, dem]
+    scale: 8
+    patch_fine: 512
+    patch_coarse: 64
+
+    split_cfg:
+      by: scenario
+      val_ratio: 0.2
+      seed: 61
+      split_stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8/split_stats_h_asinh_wet.json
+    stats:
+      calculate_if_missing: false
+      use_clip_coarse: false
+      use_clip_static: false
+      norm: zscore
+      transform: asinh
+      h_asinh_q: 90
+
+# network structures
+network_g:
+  type: FloodMapPFTV4
+  upscale: 8
+  coarse_in_chans: 3
+  static_in_chans: 7
+  flood_map_size: 64
+  use_shallow_act: true
+  use_aoi_gate: true
+  aoi_alpha: 0.8
+  couple_mode: detach
+  couple_eps: 0.2
+  embed_dim: 240
+  depths: [4, 4, 4, 6, 6, 6]
+  num_heads: 6
+  num_topk: [ 1024, 1024, 1024, 1024,
+              256, 256, 256, 256,
+              128, 128, 128, 128,
+              64, 64, 64, 64, 64, 64,
+              32, 32, 32, 32, 32, 32,
+              16, 16, 16, 16, 16, 16,]
+  window_size: 32
+  convffn_kernel_size: 7
+  mlp_ratio: 2.
+  upsampler: 'pixelshuffle'
+  resi_connection: '1conv'
+  use_checkpoint: false
+
+# path
+path:
+  pretrain_network_g: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/experiments/024_FMPFT_SRx8_scratch_s1/models/net_g_120000.pth
+  strict_load_g: true
+  resume_state: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/experiments/024_FMPFT_SRx8_scratch_s1/training_states/120000.state
+
+# training settings
+train:
+  ema_decay: 0.999
+  optim_g:
+    type: AdamW
+    lr: !!float 2e-4
+    weight_decay: 0
+    betas: [0.9, 0.99]
+
+  scheduler:
+    type: MultiStepLR
+    milestones: [500000, 800000, 900000, 950000, 980000]
+    gamma: 0.5
+
+  total_iter: 1000000
+  warmup_iter: 40000
+
+  # losses
+  pixel_opt:
+    type: MaskWeightedL1Loss
+    loss_weight: 1.0
+    tau_flood_m: 0.1
+    tau_is_physical: true
+    var: 'h'
+    transform: asinh
+    h_asinh_q: 90
+    norm: zscore
+    stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8/split_stats_h_asinh_wet.json
+    use_wet_weight: true
+    wet_lambda: 1.0
+    use_depth_weight: true
+    depth_mu: 1.0
+    depth_mode: exp
+    depth_scale: 1.0
+    weight_max: 20.0
+    ignore_zero_mask: true
+    eps: 1.0e-12
+  ordinal_opt:
+    type: MaskOrdinalBCELoss
+    loss_weight: 1.0
+    tau1_m: 0.1
+    tau2_m: 0.5
+    tau3_m: 1.0
+    tau_is_physical: true
+    var: 'h'
+    transform: asinh
+    h_asinh_q: 90
+    norm: zscore
+    stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8/split_stats_h_asinh_wet.json
+    use_pos_weight: true
+    pos_weight_min: 0.5
+    pos_weight_max: 20.0
+    focal_gamma: 0.0
+    alpha_pos: 0.75
+    w1: 1.0
+    w2: 1.0
+    w3: 0.2
+    ignore_zero_mask: true
+    eps: 1.0e-12
+  slight_opt:
+    type: MaskRangeLoss
+    loss_weight: 0.5
+    range_low_m: 0.1
+    range_high_m: 0.5
+    range_is_physical: true
+    use_low: true
+    use_high: true
+    low_inclusive: true
+    high_inclusive: false
+    var: 'h'
+    transform: asinh
+    h_asinh_q: 90
+    norm: zscore
+    stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8/split_stats_h_asinh_wet.json
+    range_loss_type: smoothl1
+    range_beta: 0.1
+    ignore_zero_mask: true
+    eps: 1.0e-12
+
+# validation settings
+val:
+  val_freq: !!float 2e4
+  save_flood_map: false
+
+  metrics:
+    rmse:
+      type: cal_rmse_pt
+      reduction: mean
+      better: lower
+    rmse_thr:
+      type: cal_rmse_threshold_pt
+      reduction: mean
+      threshold: 0.1
+      better: lower
+    rmse_thr_tol:
+      type: cal_rmse_threshold_tolerant_pt
+      reduction: mean
+      threshold: 0.1
+      abs_tol: 0.02
+      better: lower
+    rmse_all:
+      type: cal_rmse_conditional_pt
+      reduction: none
+      cond_on_target_ge: ~
+      better: lower
+    rmse_nonflood01:
+      type: cal_rmse_conditional_pt
+      reduction: none
+      cond_on_target_ge: 0.0
+      cond_on_target_lt: 0.1
+      better: lower
+    rmse_nonflood01_tol:
+      type: cal_rmse_conditional_pt
+      reduction: none
+      cond_on_target_ge: 0.0
+      cond_on_target_lt: 0.1
+      abs_tol: 0.02
+      better: lower
+    rmse_slight01_05:
+      type: cal_rmse_conditional_pt
+      reduction: none
+      cond_on_target_ge: 0.1
+      cond_on_target_lt: 0.5
+      better: lower
+    rmse_slight01_05_tol:
+      type: cal_rmse_conditional_pt
+      reduction: none
+      cond_on_target_ge: 0.1
+      cond_on_target_lt: 0.5
+      abs_tol: 0.02
+      better: lower
+    rmse_severe05_1:
+      type: cal_rmse_conditional_pt
+      reduction: none
+      cond_on_target_ge: 0.5
+      cond_on_target_lt: 1
+      better: lower
+    rmse_severe05_1_tol:
+      type: cal_rmse_conditional_pt
+      reduction: none
+      cond_on_target_ge: 0.5
+      cond_on_target_lt: 1
+      abs_tol: 0.02
+      better: lower
+    rmse_extreme1:
+      type: cal_rmse_conditional_pt
+      reduction: none
+      cond_on_target_ge: 1
+      cond_on_target_lt: ~
+      better: lower
+    rmse_extreme1_tol:
+      type: cal_rmse_conditional_pt
+      reduction: none
+      cond_on_target_ge: 1
+      cond_on_target_lt: ~
+      abs_tol: 0.02
+      better: lower
+    nse:
+      type: cal_nse_pt
+      reduction: mean
+      better: higher
+    nse_safe:
+      type: cal_nse_pt_safe
+      reduction: mean
+      min_var: 1.0e-6
+      abs_tol_per_px: 1.0e-4
+      lower_bound: -5.0
+      better: higher
+    nse_thr01_safe:
+      type: cal_nse_threshold_pt_safe
+      reduction: mean
+      min_var: 1.0e-6
+      abs_tol_per_px: 1.0e-4
+      lower_bound: -5.0
+      threshold: 0.1
+      better: higher
+    nse_thr01_tol_safe:
+      type: cal_nse_threshold_tolerant_pt_safe
+      reduction: mean
+      min_var: 1.0e-6
+      abs_tol_per_px: 1.0e-4
+      lower_bound: -5.0
+      threshold: 0.1
+      abs_tol: 0.02
+      better: higher
+    csi_thr01:
+      type: cal_csi_pt
+      threshold: 0.1
+      reduction: mean
+      better: higher
+    csi_thr01_tol:
+      type: cal_csi_tolerant_pt
+      threshold: 0.1
+      reduction: mean
+      abs_tol: 0.02
+      better: higher
+    precision_thr01:
+      type: cal_precision_pt
+      threshold: 0.1
+      reduction: mean
+      better: higher
+    precision_thr01_tol:
+      type: cal_precision_tolerant_pt
+      threshold: 0.1
+      reduction: mean
+      abs_tol: 0.02
+      better: higher
+    precision_nonflood01:
+      type: cal_precision_band_pt
+      band_ge: 0.0
+      band_lt: 0.1
+      reduction: mean
+      better: higher
+    precision_slight01_05:
+      type: cal_precision_band_pt
+      band_ge: 0.1
+      band_lt: 0.5
+      reduction: mean
+      better: higher
+    precision_severe05_1:
+      type: cal_precision_band_pt
+      band_ge: 0.5
+      band_lt: 1
+      reduction: mean
+      better: higher
+    precision_extreme1:
+      type: cal_precision_band_pt
+      band_ge: 1
+      band_lt: ~
+      reduction: mean
+      better: higher
+    recall_thr01:
+      type: cal_recall_pt
+      threshold: 0.1
+      reduction: mean
+      better: higher
+    recall_thr01_tol:
+      type: cal_recall_tolerant_pt
+      threshold: 0.1
+      reduction: mean
+      abs_tol: 0.02
+      better: higher
+    recall_nonflood01:
+      type: cal_recall_band_pt
+      band_ge: 0.0
+      band_lt: 0.1
+      reduction: mean
+      better: higher
+    recall_slight01_05:
+      type: cal_recall_band_pt
+      band_ge: 0.1
+      band_lt: 0.5
+      reduction: mean
+      better: higher
+    recall_severe05_1:
+      type: cal_recall_band_pt
+      band_ge: 0.5
+      band_lt: 1
+      reduction: mean
+      better: higher
+    recall_extreme1:
+      type: cal_recall_band_pt
+      band_ge: 1
+      band_lt: ~
+      reduction: mean
+      better: higher
+    target_prevalence:
+      type: cal_prev_t_pt
+      threshold: 0.1
+      reduction: mean
+    pred_prevalence:
+      type: cal_prev_p_pt
+      threshold: 0.1
+      reduction: mean
+
+# logging settings
+logger:
+  print_freq: 100
+  save_checkpoint_freq: !!float 5e3
+  use_tb_logger: true
+  wandb:
+    project: ~
+    resume_id: ~
+
+# dist training settings
+dist_params:
+  backend: nccl
+  port: 29500

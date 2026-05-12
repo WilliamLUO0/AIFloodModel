@@ -49,6 +49,79 @@ def ensure_4d_np(x):
     return x
 
 
+def _safe_divide_metric_pt(num: torch.Tensor,
+                           denom: torch.Tensor,
+                           eps: float = 1e-12,
+                           empty_as_nan: bool = False):
+    """
+    Per-sample safe division for metrics.
+
+    If empty_as_nan=True, samples with denom == 0 are set to NaN.
+    This is useful for precision / recall / CSI when the metric is undefined.
+
+    Examples:
+      precision denominator = TP + FP
+      recall denominator    = TP + FN
+      CSI denominator       = TP + FP + FN
+    """
+    if empty_as_nan:
+        out = torch.full_like(num, float("nan"))
+        valid = denom > 0
+        out[valid] = num[valid] / denom[valid].clamp_min(eps)
+        return out
+
+    return num / denom.clamp_min(eps)
+
+
+def _reduce_metric_pt(x: torch.Tensor, reduction: str = "mean"):
+    """
+    Reduce per-sample metric values.
+
+    If reduction='mean', ignore NaN values.
+    """
+    if reduction == "none":
+        return x
+
+    finite = torch.isfinite(x)
+    if finite.any():
+        return x[finite].mean().item()
+    return float("nan")
+
+
+def _safe_divide_metric_np(num: np.ndarray,
+                           denom: np.ndarray,
+                           eps: float = 1e-12,
+                           empty_as_nan: bool = False):
+    """
+    Numpy version of per-sample safe division.
+    """
+    num = np.asarray(num, dtype=np.float64)
+    denom = np.asarray(denom, dtype=np.float64)
+
+    if empty_as_nan:
+        out = np.full_like(num, np.nan, dtype=np.float64)
+        valid = denom > 0
+        out[valid] = num[valid] / np.clip(denom[valid], eps, None)
+        return out
+
+    return num / np.clip(denom, eps, None)
+
+
+def _reduce_metric_np(x: np.ndarray, reduction: str = "mean"):
+    """
+    Reduce per-sample numpy metric values.
+
+    If reduction='mean', ignore NaN values.
+    """
+    if reduction == "none":
+        return x
+
+    finite = np.isfinite(x)
+    if np.any(finite):
+        return float(np.mean(x[finite]))
+    return float("nan")
+
+
 @METRIC_REGISTRY.register()
 def cal_rmse_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
                 reduction: str = "mean", eps: float = 1e-12):
@@ -213,26 +286,6 @@ def cal_rmse_threshold_tolerant_np(pred: np.ndarray, target: np.ndarray, mask: n
 
 
 @METRIC_REGISTRY.register()
-def cal_rmse_depth_threshold_pt(pred, target, mask, reduction: str = "mean", eps: float = 1e-12):
-    return cal_rmse_threshold_pt(pred, target, mask, reduction=reduction, eps=eps, threshold=0.05)
-
-
-@METRIC_REGISTRY.register()
-def cal_rmse_vel_threshold_pt(pred, target, mask, reduction: str = "mean", eps: float = 1e-12):
-    return cal_rmse_threshold_pt(pred, target, mask, reduction=reduction, eps=eps, threshold=0.1)
-
-
-@METRIC_REGISTRY.register()
-def cal_rmse_depth_threshold_tolerant_pt(pred, target, mask, reduction: str = "mean", eps: float = 1e-12):
-    return cal_rmse_threshold_tolerant_pt(pred, target, mask, reduction=reduction, eps=eps, threshold=0.05, abs_tol=0.01)
-
-
-@METRIC_REGISTRY.register()
-def cal_rmse_vel_threshold_tolerant_pt(pred, target, mask, reduction: str = "mean", eps: float = 1e-12):
-    return cal_rmse_threshold_tolerant_pt(pred, target, mask, reduction=reduction, eps=eps, threshold=0.1, abs_tol=0.02)
-
-
-@METRIC_REGISTRY.register()
 def cal_rmse_conditional_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
                             reduction: str = "mean", eps: float = 1e-12,
                             cond_on_target_ge: Optional[float] = None,
@@ -272,61 +325,6 @@ def cal_rmse_conditional_pt(pred: torch.Tensor, target: torch.Tensor, mask: torc
         return rmse[valid].mean().item()
     else:
         return float("nan")
-
-
-@METRIC_REGISTRY.register()
-def cal_conditional_rmse_depth_all(pred, target, mask, reduction: str = "none", eps: float = 1e-12):
-    return cal_rmse_conditional_pt(pred, target, mask, reduction=reduction, eps=eps, cond_on_target_ge=None)
-
-
-@METRIC_REGISTRY.register()
-def cal_conditional_rmse_depth_shallow(pred, target, mask, reduction: str = "none", eps: float = 1e-12):
-    return cal_rmse_conditional_pt(pred, target, mask, reduction=reduction, eps=eps, cond_on_target_ge=0.0, cond_on_target_lt=0.05)
-
-
-@METRIC_REGISTRY.register()
-def cal_conditional_rmse_depth_shallow_tolerant(pred, target, mask, reduction: str = "none", eps: float = 1e-12):
-    return cal_rmse_conditional_pt(pred, target, mask, reduction=reduction, eps=eps, cond_on_target_ge=0.0, cond_on_target_lt=0.05, abs_tol=0.01)
-
-
-@METRIC_REGISTRY.register()
-def cal_conditional_rmse_depth_wet(pred, target, mask, reduction: str = "none", eps: float = 1e-12):
-    return cal_rmse_conditional_pt(pred, target, mask, reduction=reduction, eps=eps, cond_on_target_ge=0.05, cond_on_target_lt=1.0)
-
-
-# @METRIC_REGISTRY.register()
-# def cal_conditional_rmse_depth_wet(pred, target, mask, reduction: str = "none", eps: float = 1e-12):
-#     return cal_rmse_conditional_pt(pred, target, mask, reduction=reduction, eps=eps, cond_on_target_ge=0.05)
-
-
-@METRIC_REGISTRY.register()
-def cal_conditional_rmse_depth_wet_tolerant(pred, target, mask, reduction: str = "none", eps: float = 1e-12):
-    return cal_rmse_conditional_pt(pred, target, mask, reduction=reduction, eps=eps, cond_on_target_ge=0.05, cond_on_target_lt=1.0, abs_tol=0.01)
-
-
-# @METRIC_REGISTRY.register()
-# def cal_conditional_rmse_depth_wet_tolerant(pred, target, mask, reduction: str = "none", eps: float = 1e-12):
-#     return cal_rmse_conditional_pt(pred, target, mask, reduction=reduction, eps=eps, cond_on_target_ge=0.05, abs_tol=0.01)
-
-
-@METRIC_REGISTRY.register()
-def cal_conditional_rmse_depth_deep(pred, target, mask, reduction: str = "none", eps: float = 1e-12):
-    return cal_rmse_conditional_pt(pred, target, mask, reduction=reduction, eps=eps, cond_on_target_ge=1.0, cond_on_target_lt=None)
-
-
-# @METRIC_REGISTRY.register()
-# def cal_conditional_rmse_depth_deep(pred, target, mask, reduction: str = "none", eps: float = 1e-12):
-#     return cal_rmse_conditional_pt(pred, target, mask, reduction=reduction, eps=eps, cond_on_target_ge=1.0)
-
-
-@METRIC_REGISTRY.register()
-def cal_conditional_rmse_depth_deep_tolerant(pred, target, mask, reduction: str = "none", eps: float = 1e-12):
-    return cal_rmse_conditional_pt(pred, target, mask, reduction=reduction, eps=eps, cond_on_target_ge=1.0, cond_on_target_lt=None, abs_tol=0.01)
-
-
-# @METRIC_REGISTRY.register()
-# def cal_conditional_rmse_depth_deep_tolerant(pred, target, mask, reduction: str = "none", eps: float = 1e-12):
-#     return cal_rmse_conditional_pt(pred, target, mask, reduction=reduction, eps=eps, cond_on_target_ge=1.0, abs_tol=0.01)
 
 
 @METRIC_REGISTRY.register()
@@ -774,60 +772,9 @@ def cal_nse_threshold_tolerant_np_safe(pred: np.ndarray, target: np.ndarray, mas
 
 
 @METRIC_REGISTRY.register()
-def cal_nse_depth_threshold_pt(pred, target, mask,
-                               reduction: str = "mean", eps: float = 1e-12):
-    return cal_nse_threshold_pt(pred, target, mask,
-                                reduction=reduction, eps=eps, threshold=0.05)
-
-
-@METRIC_REGISTRY.register()
-def cal_nse_depth_threshold_tolerant_pt(pred, target, mask,
-                                        reduction: str = "mean", eps: float = 1e-12):
-    return cal_nse_threshold_tolerant_pt(pred, target, mask,
-                                         reduction=reduction, eps=eps, threshold=0.05, abs_tol=0.01)
-
-
-@METRIC_REGISTRY.register()
-def cal_nse_depth_threshold_pt_safe(pred, target, mask,
-                                    reduction: str = "mean", eps: float = 1e-12, min_var: float = 1e-6,
-                                    abs_tol_per_px: float = 1e-4, lower_bound: float = -5.0):
-    return cal_nse_threshold_pt_safe(pred, target, mask,
-                                     reduction=reduction, eps=eps, min_var=min_var,
-                                     abs_tol_per_px=abs_tol_per_px, lower_bound=lower_bound, threshold=0.05)
-
-
-@METRIC_REGISTRY.register()
-def cal_nse_depth_threshold_tolerant_pt_safe(pred, target, mask,
-                                             reduction: str = "mean", eps: float = 1e-12, min_var: float = 1e-6,
-                                             abs_tol_per_px: float = 1e-4, lower_bound: float = -5.0):
-    return cal_nse_threshold_tolerant_pt_safe(pred, target, mask,
-                                              reduction=reduction, eps=eps, min_var=min_var,
-                                              abs_tol_per_px=abs_tol_per_px, lower_bound=lower_bound,
-                                              threshold=0.05, abs_tol=0.01)
-
-
-@METRIC_REGISTRY.register()
-def cal_nse_vel_threshold_pt_safe(pred, target, mask,
-                                  reduction: str = "mean", eps: float = 1e-12, min_var: float = 1e-6,
-                                  abs_tol_per_px: float = 1e-4, lower_bound: float = -5.0):
-    return cal_nse_threshold_pt_safe(pred, target, mask,
-                                     reduction=reduction, eps=eps, min_var=min_var,
-                                     abs_tol_per_px=abs_tol_per_px, lower_bound=lower_bound, threshold=0.1)
-
-
-@METRIC_REGISTRY.register()
-def cal_nse_vel_threshold_tolerant_pt_safe(pred, target, mask,
-                                           reduction: str = "mean", eps: float = 1e-12, min_var: float = 1e-6,
-                                           abs_tol_per_px: float = 1e-4, lower_bound: float = -5.0):
-    return cal_nse_threshold_tolerant_pt_safe(pred, target, mask,
-                                              reduction=reduction, eps=eps, min_var=min_var,
-                                              abs_tol_per_px=abs_tol_per_px, lower_bound=lower_bound,
-                                              threshold=0.1, abs_tol=0.02)
-
-
-@METRIC_REGISTRY.register()
 def cal_csi_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
-               threshold: float = 0.05, reduction: str = "mean", eps: float = 1e-12):
+               threshold: float = 0.05, reduction: str = "mean",
+               empty_as_nan: bool = False, eps: float = 1e-12):
     """
     Critical Success Index (CSI) on tensors in physical domain.
 
@@ -857,15 +804,15 @@ def cal_csi_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
     fp = sum_over_hw((p_evt & (~t_evt)).to(pred.dtype))
     fn = sum_over_hw(((~p_evt) & t_evt).to(pred.dtype))
 
-    csi = tp / (tp + fp + fn + eps)
-    if reduction == "none":
-        return csi
-    return csi.mean().item()
+    csi = _safe_divide_metric_pt(tp, tp + fp + fn, eps=eps, empty_as_nan=empty_as_nan)
+    return _reduce_metric_pt(csi, reduction=reduction)
 
 
 @METRIC_REGISTRY.register()
 def cal_csi_tolerant_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
-                        threshold: float = 0.05, reduction: str = "mean", eps: float = 1e-12, abs_tol: float = 0.01):
+                        threshold: float = 0.05, reduction: str = "mean",
+                        eps: float = 1e-12, abs_tol: float = 0.01,
+                        empty_as_nan: bool = False):
     pred = ensure_4d_pt(pred)
     target = ensure_4d_pt(target)
     mask = ensure_4d_pt(mask)
@@ -882,15 +829,14 @@ def cal_csi_tolerant_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Te
     fp = sum_over_hw((p_evt & (~t_evt)).to(pred.dtype))
     fn = sum_over_hw(((~p_evt) & t_evt).to(pred.dtype))
 
-    csi = tp / (tp + fp + fn + eps)
-    if reduction == "none":
-        return csi
-    return csi.mean().item()
+    csi = _safe_divide_metric_pt(tp, tp + fp + fn, eps=eps, empty_as_nan=empty_as_nan)
+    return _reduce_metric_pt(csi, reduction=reduction)
 
 
 @METRIC_REGISTRY.register()
 def cal_csi_np(pred: np.ndarray, target: np.ndarray, mask: np.ndarray,
-               threshold: float = 0.05, reduction: str = "mean", eps: float = 1e-12):
+               threshold: float = 0.05, reduction: str = "mean",
+               empty_as_nan: bool = False, eps: float = 1e-12):
     pred = ensure_4d_np(pred)
     target = ensure_4d_np(target)
     mask = ensure_4d_np(mask)
@@ -903,15 +849,15 @@ def cal_csi_np(pred: np.ndarray, target: np.ndarray, mask: np.ndarray,
     fp = (p_evt & (~t_evt)).reshape(pred.shape[0], -1).sum(1).astype(np.float64)
     fn = ((~p_evt) & t_evt).reshape(pred.shape[0], -1).sum(1).astype(np.float64)
 
-    csi = tp / (tp + fp + fn + eps)
-    if reduction == "none":
-        return csi
-    return float(csi.mean())
+    csi = _safe_divide_metric_np(tp, tp + fp + fn, eps=eps, empty_as_nan=empty_as_nan)
+    return _reduce_metric_np(csi, reduction=reduction)
 
 
 @METRIC_REGISTRY.register()
 def cal_csi_tolerant_np(pred: np.ndarray, target: np.ndarray, mask: np.ndarray,
-                        threshold: float = 0.05, reduction: str = "mean", eps: float = 1e-12, abs_tol: float = 0.01):
+                        threshold: float = 0.05, reduction: str = "mean",
+                        eps: float = 1e-12, abs_tol: float = 0.01,
+                        empty_as_nan: bool = False):
     pred = ensure_4d_np(pred)
     target = ensure_4d_np(target)
     mask = ensure_4d_np(mask)
@@ -928,39 +874,14 @@ def cal_csi_tolerant_np(pred: np.ndarray, target: np.ndarray, mask: np.ndarray,
     fp = (p_evt & (~t_evt)).reshape(pred.shape[0], -1).sum(1).astype(np.float64)
     fn = ((~p_evt) & t_evt).reshape(pred.shape[0], -1).sum(1).astype(np.float64)
 
-    csi = tp / (tp + fp + fn + eps)
-    if reduction == "none":
-        return csi
-    return float(csi.mean())
-
-
-@METRIC_REGISTRY.register()
-def cal_csi_depth_pt(pred, target, mask, reduction: str = "mean", eps: float = 1e-12):
-    return cal_csi_pt(pred, target, mask,
-                      threshold=0.05, reduction=reduction, eps=eps)
-
-
-@METRIC_REGISTRY.register()
-def cal_csi_vel_pt(pred, target, mask, reduction: str = "mean", eps: float = 1e-12):
-    return cal_csi_pt(pred, target, mask,
-                      threshold=0.1, reduction=reduction, eps=eps)
-
-
-@METRIC_REGISTRY.register()
-def cal_csi_depth_tolerant_pt(pred, target, mask, reduction: str = "mean", eps: float = 1e-12):
-    return cal_csi_tolerant_pt(pred, target, mask,
-                               threshold=0.05, reduction=reduction, eps=eps, abs_tol=0.01)
-
-
-@METRIC_REGISTRY.register()
-def cal_csi_vel_tolerant_pt(pred, target, mask, reduction: str = "mean", eps: float = 1e-12):
-    return cal_csi_tolerant_pt(pred, target, mask,
-                               threshold=0.1, reduction=reduction, eps=eps, abs_tol=0.02)
+    csi = _safe_divide_metric_np(tp, tp + fp + fn, eps=eps, empty_as_nan=empty_as_nan)
+    return _reduce_metric_np(csi, reduction=reduction)
 
 
 @METRIC_REGISTRY.register()
 def cal_precision_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
-                     threshold: float = 0.05, reduction: str = "mean", eps: float = 1e-12):
+                     threshold: float = 0.05, reduction: str = "mean",
+                     empty_as_nan: bool = False, eps: float = 1e-12):
     pred = ensure_4d_pt(pred)
     target = ensure_4d_pt(target)
     mask = ensure_4d_pt(mask)
@@ -972,15 +893,15 @@ def cal_precision_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tenso
     tp = sum_over_hw((p_evt & t_evt).to(pred.dtype))
     fp = sum_over_hw((p_evt & (~t_evt)).to(pred.dtype))
 
-    prec = tp / (tp + fp + eps)
-    if reduction == "none":
-        return prec
-    return prec.mean().item()
+    prec = _safe_divide_metric_pt(tp, tp + fp, eps=eps, empty_as_nan=empty_as_nan)
+    return _reduce_metric_pt(prec, reduction=reduction)
 
 
 @METRIC_REGISTRY.register()
 def cal_precision_tolerant_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
-                              threshold: float = 0.05, reduction: str = "mean", eps: float = 1e-12, abs_tol: float = 0.01):
+                              threshold: float = 0.05, reduction: str = "mean",
+                              eps: float = 1e-12, abs_tol: float = 0.01,
+                              empty_as_nan: bool = False):
     pred = ensure_4d_pt(pred)
     target = ensure_4d_pt(target)
     mask = ensure_4d_pt(mask)
@@ -996,15 +917,14 @@ def cal_precision_tolerant_pt(pred: torch.Tensor, target: torch.Tensor, mask: to
     tp = sum_over_hw((p_evt & t_evt).to(pred.dtype))
     fp = sum_over_hw((p_evt & (~t_evt)).to(pred.dtype))
 
-    prec = tp / (tp + fp + eps)
-    if reduction == "none":
-        return prec
-    return prec.mean().item()
+    prec = _safe_divide_metric_pt(tp, tp + fp, eps=eps, empty_as_nan=empty_as_nan)
+    return _reduce_metric_pt(prec, reduction=reduction)
 
 
 @METRIC_REGISTRY.register()
 def cal_precision_np(pred: np.ndarray, target: np.ndarray, mask: np.ndarray,
-                     threshold: float = 0.05, reduction: str = "mean", eps: float = 1e-12):
+                     threshold: float = 0.05, reduction: str = "mean",
+                     empty_as_nan: bool = False, eps: float = 1e-12):
     pred = ensure_4d_np(pred)
     target = ensure_4d_np(target)
     mask = ensure_4d_np(mask)
@@ -1016,15 +936,15 @@ def cal_precision_np(pred: np.ndarray, target: np.ndarray, mask: np.ndarray,
     tp = (p_evt & t_evt).reshape(pred.shape[0], -1).sum(1).astype(np.float64)
     fp = (p_evt & (~t_evt)).reshape(pred.shape[0], -1).sum(1).astype(np.float64)
 
-    prec = tp / (tp + fp + eps)
-    if reduction == "none":
-        return prec
-    return float(prec.mean())
+    prec = _safe_divide_metric_np(tp, tp + fp, eps=eps, empty_as_nan=empty_as_nan)
+    return _reduce_metric_np(prec, reduction=reduction)
 
 
 @METRIC_REGISTRY.register()
 def cal_precision_tolerant_np(pred: np.ndarray, target: np.ndarray, mask: np.ndarray,
-                              threshold: float = 0.05, reduction: str = "mean", eps: float = 1e-12, abs_tol: float = 0.01):
+                              threshold: float = 0.05, reduction: str = "mean",
+                              eps: float = 1e-12, abs_tol: float = 0.01,
+                              empty_as_nan: bool = False):
     pred = ensure_4d_np(pred)
     target = ensure_4d_np(target)
     mask = ensure_4d_np(mask)
@@ -1040,39 +960,17 @@ def cal_precision_tolerant_np(pred: np.ndarray, target: np.ndarray, mask: np.nda
     tp = (p_evt & t_evt).reshape(pred.shape[0], -1).sum(1).astype(np.float64)
     fp = (p_evt & (~t_evt)).reshape(pred.shape[0], -1).sum(1).astype(np.float64)
 
-    prec = tp / (tp + fp + eps)
-    if reduction == "none":
-        return prec
-    return float(prec.mean())
-
-
-@METRIC_REGISTRY.register()
-def cal_precision_depth_pt(pred, target, mask, reduction: str = "mean", eps: float = 1e-12):
-    return cal_precision_pt(pred, target, mask,
-                            threshold=0.05, reduction=reduction, eps=eps)
-
-
-@METRIC_REGISTRY.register()
-def cal_precision_vel_pt(pred, target, mask, reduction: str = "mean", eps: float = 1e-12):
-    return cal_precision_pt(pred, target, mask,
-                            threshold=0.1, reduction=reduction, eps=eps)
-
-
-@METRIC_REGISTRY.register()
-def cal_precision_depth_tolerant_pt(pred, target, mask, reduction: str = "mean", eps: float = 1e-12):
-    return cal_precision_tolerant_pt(pred, target, mask,
-                                     threshold=0.05, reduction=reduction, eps=eps, abs_tol=0.01)
-
-
-@METRIC_REGISTRY.register()
-def cal_precision_vel_tolerant_pt(pred, target, mask, reduction: str = "mean", eps: float = 1e-12):
-    return cal_precision_tolerant_pt(pred, target, mask,
-                                     threshold=0.1, reduction=reduction, eps=eps, abs_tol=0.02)
+    prec = _safe_divide_metric_np(tp, tp + fp, eps=eps, empty_as_nan=empty_as_nan)
+    return _reduce_metric_np(prec, reduction=reduction)
 
 
 @METRIC_REGISTRY.register()
 def cal_precision_band_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
-                          band_ge: Optional[float] = None, band_lt: Optional[float] = None, reduction: str = "mean", eps: float = 1e-12,):
+                          band_ge: Optional[float] = None,
+                          band_lt: Optional[float] = None,
+                          reduction: str = "mean",
+                          empty_as_nan: bool = False,
+                          eps: float = 1e-12,):
     pred = ensure_4d_pt(pred)
     target = ensure_4d_pt(target)
     mask = ensure_4d_pt(mask)
@@ -1093,31 +991,14 @@ def cal_precision_band_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.
     tp = sum_over_hw((p_evt & t_evt).to(pred.dtype))
     fp = sum_over_hw((p_evt & (~t_evt)).to(pred.dtype))
 
-    prec = tp / (tp + fp + eps)
-
-    if reduction == "none":
-        return prec
-    return prec.mean().item()
-
-
-@METRIC_REGISTRY.register()
-def cal_precision_depth_shallow_pt(pred, target, mask, reduction: str = "mean", eps: float = 1e-12):
-    return cal_precision_band_pt(pred, target, mask, band_ge=0.0, band_lt=0.05, reduction=reduction, eps=eps)
-
-
-@METRIC_REGISTRY.register()
-def cal_precision_depth_wet_band_pt(pred, target, mask, reduction: str = "mean", eps: float = 1e-12):
-    return cal_precision_band_pt(pred, target, mask, band_ge=0.05, band_lt=1.0, reduction=reduction, eps=eps)
-
-
-@METRIC_REGISTRY.register()
-def cal_precision_depth_deep_band_pt(pred, target, mask, reduction: str = "mean", eps: float = 1e-12):
-    return cal_precision_band_pt(pred, target, mask, band_ge=1.0, band_lt=None, reduction=reduction, eps=eps)
+    prec = _safe_divide_metric_pt(tp, tp + fp, eps=eps, empty_as_nan=empty_as_nan)
+    return _reduce_metric_pt(prec, reduction=reduction)
 
 
 @METRIC_REGISTRY.register()
 def cal_recall_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
-                  threshold: float = 0.05, reduction: str = "mean", eps: float = 1e-12):
+                  threshold: float = 0.05, reduction: str = "mean",
+                  empty_as_nan: bool = False, eps: float = 1e-12):
     pred = ensure_4d_pt(pred)
     target = ensure_4d_pt(target)
     mask = ensure_4d_pt(mask)
@@ -1129,15 +1010,15 @@ def cal_recall_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
     tp = sum_over_hw((p_evt & t_evt).to(pred.dtype))
     fn = sum_over_hw(((~p_evt) & t_evt).to(pred.dtype))
 
-    rec = tp / (tp + fn + eps)
-    if reduction == "none":
-        return rec
-    return rec.mean().item()
+    rec = _safe_divide_metric_pt(tp, tp + fn, eps=eps, empty_as_nan=empty_as_nan)
+    return _reduce_metric_pt(rec, reduction=reduction)
 
 
 @METRIC_REGISTRY.register()
 def cal_recall_tolerant_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
-                           threshold: float = 0.05, reduction: str = "mean", eps: float = 1e-12, abs_tol: float = 0.01):
+                           threshold: float = 0.05, reduction: str = "mean",
+                           eps: float = 1e-12, abs_tol: float = 0.01,
+                           empty_as_nan: bool = False):
     pred = ensure_4d_pt(pred)
     target = ensure_4d_pt(target)
     mask = ensure_4d_pt(mask)
@@ -1153,15 +1034,14 @@ def cal_recall_tolerant_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch
     tp = sum_over_hw((p_evt & t_evt).to(pred.dtype))
     fn = sum_over_hw(((~p_evt) & t_evt).to(pred.dtype))
 
-    rec = tp / (tp + fn + eps)
-    if reduction == "none":
-        return rec
-    return rec.mean().item()
+    rec = _safe_divide_metric_pt(tp, tp + fn, eps=eps, empty_as_nan=empty_as_nan)
+    return _reduce_metric_pt(rec, reduction=reduction)
 
 
 @METRIC_REGISTRY.register()
 def cal_recall_np(pred: np.ndarray, target: np.ndarray, mask: np.ndarray,
-                  threshold: float = 0.05, reduction: str = "mean", eps: float = 1e-12):
+                  threshold: float = 0.05, reduction: str = "mean",
+                  empty_as_nan: bool = False, eps: float = 1e-12):
     pred = ensure_4d_np(pred)
     target = ensure_4d_np(target)
     mask = ensure_4d_np(mask)
@@ -1173,15 +1053,15 @@ def cal_recall_np(pred: np.ndarray, target: np.ndarray, mask: np.ndarray,
     tp = (p_evt & t_evt).reshape(pred.shape[0], -1).sum(1).astype(np.float64)
     fn = ((~p_evt) & t_evt).reshape(pred.shape[0], -1).sum(1).astype(np.float64)
 
-    rec = tp / (tp + fn + eps)
-    if reduction == "none":
-        return rec
-    return float(rec.mean())
+    rec = _safe_divide_metric_np(tp, tp + fn, eps=eps, empty_as_nan=empty_as_nan)
+    return _reduce_metric_np(rec, reduction=reduction)
 
 
 @METRIC_REGISTRY.register()
 def cal_recall_tolerant_np(pred: np.ndarray, target: np.ndarray, mask: np.ndarray,
-                           threshold: float = 0.05, reduction: str = "mean", eps: float = 1e-12, abs_tol: float = 0.01):
+                           threshold: float = 0.05, reduction: str = "mean",
+                           eps: float = 1e-12, abs_tol: float = 0.01,
+                           empty_as_nan: bool = False):
     pred = ensure_4d_np(pred)
     target = ensure_4d_np(target)
     mask = ensure_4d_np(mask)
@@ -1197,39 +1077,17 @@ def cal_recall_tolerant_np(pred: np.ndarray, target: np.ndarray, mask: np.ndarra
     tp = (p_evt & t_evt).reshape(pred.shape[0], -1).sum(1).astype(np.float64)
     fn = ((~p_evt) & t_evt).reshape(pred.shape[0], -1).sum(1).astype(np.float64)
 
-    rec = tp / (tp + fn + eps)
-    if reduction == "none":
-        return rec
-    return float(rec.mean())
-
-
-@METRIC_REGISTRY.register()
-def cal_recall_depth_pt(pred, target, mask, reduction: str = "mean", eps: float = 1e-12):
-    return cal_recall_pt(pred, target, mask,
-                         threshold=0.05, reduction=reduction, eps=eps)
-
-
-@METRIC_REGISTRY.register()
-def cal_recall_vel_pt(pred, target, mask, reduction: str = "mean", eps: float = 1e-12):
-    return cal_recall_pt(pred, target, mask,
-                         threshold=0.1, reduction=reduction, eps=eps)
-
-
-@METRIC_REGISTRY.register()
-def cal_recall_depth_tolerant_pt(pred, target, mask, reduction: str = "mean", eps: float = 1e-12):
-    return cal_recall_tolerant_pt(pred, target, mask,
-                                  threshold=0.05, reduction=reduction, eps=eps, abs_tol=0.01)
-
-
-@METRIC_REGISTRY.register()
-def cal_recall_vel_tolerant_pt(pred, target, mask, reduction: str = "mean", eps: float = 1e-12):
-    return cal_recall_tolerant_pt(pred, target, mask,
-                                  threshold=0.1, reduction=reduction, eps=eps, abs_tol=0.02)
+    rec = _safe_divide_metric_np(tp, tp + fn, eps=eps, empty_as_nan=empty_as_nan)
+    return _reduce_metric_np(rec, reduction=reduction)
 
 
 @METRIC_REGISTRY.register()
 def cal_recall_band_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
-                    band_ge: Optional[float] = None, band_lt: Optional[float] = None, reduction: str = "mean", eps: float = 1e-12,):
+                       band_ge: Optional[float] = None,
+                       band_lt: Optional[float] = None,
+                       reduction: str = "mean",
+                       empty_as_nan: bool = False,
+                       eps: float = 1e-12,):
     pred = ensure_4d_pt(pred)
     target = ensure_4d_pt(target)
     mask = ensure_4d_pt(mask)
@@ -1250,26 +1108,8 @@ def cal_recall_band_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Ten
     tp = sum_over_hw((p_evt & t_evt).to(pred.dtype))
     fn = sum_over_hw(((~p_evt) & t_evt).to(pred.dtype))
 
-    rec = tp / (tp + fn + eps)
-
-    if reduction == "none":
-        return rec
-    return rec.mean().item()
-
-
-@METRIC_REGISTRY.register()
-def cal_recall_depth_shallow_pt(pred, target, mask, reduction: str = "mean", eps: float = 1e-12):
-    return cal_recall_band_pt(pred, target, mask, band_ge=0.0, band_lt=0.05, reduction=reduction, eps=eps)
-
-
-@METRIC_REGISTRY.register()
-def cal_recall_depth_wet_band_pt(pred, target, mask, reduction: str = "mean", eps: float = 1e-12):
-    return cal_recall_band_pt(pred, target, mask, band_ge=0.05, band_lt=1.0, reduction=reduction, eps=eps)
-
-
-@METRIC_REGISTRY.register()
-def cal_recall_depth_deep_band_pt(pred, target, mask, reduction: str = "mean", eps: float = 1e-12):
-    return cal_recall_band_pt(pred, target, mask, band_ge=1.0, band_lt=None, reduction=reduction, eps=eps)
+    rec = _safe_divide_metric_pt(tp, tp + fn, eps=eps, empty_as_nan=empty_as_nan)
+    return _reduce_metric_pt(rec, reduction=reduction)
 
 
 @METRIC_REGISTRY.register()
@@ -1347,3 +1187,363 @@ def cal_prev_p_np(pred: np.ndarray, target: np.ndarray, mask: np.ndarray,
         return prev_p
     return float(prev_p.mean())
 
+
+@METRIC_REGISTRY.register()
+def cal_logit_precision_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
+                           channel: int = 0,
+                           target_threshold: float = 0.1,
+                           prob_threshold: float = 0.5,
+                           reduction: str = "mean",
+                           empty_as_nan: bool = True,
+                           eps: float = 1e-12):
+    """
+    Precision for one flood-logit channel.
+
+    Example:
+      channel=0, target_threshold=0.1
+      evaluates whether flood_logit[:,0] predicts h >= 0.1 m.
+
+    Precision = TP / (TP + FP)
+    """
+    pred = ensure_4d_pt(pred)
+    target = ensure_4d_pt(target)
+    mask = ensure_4d_pt(mask)
+
+    if pred.shape[1] <= channel:
+        raise ValueError(f"[cal_logit_precision_pt] pred has {pred.shape[1]} channels, but channel={channel}")
+
+    m = mask > 0.5
+
+    prob = torch.sigmoid(pred[:, channel:channel + 1, :, :])
+    p_evt = (prob >= prob_threshold) & m
+    t_evt = (target >= target_threshold) & m
+
+    tp = sum_over_hw((p_evt & t_evt).to(pred.dtype))
+    fp = sum_over_hw((p_evt & (~t_evt)).to(pred.dtype))
+
+    precision = _safe_divide_metric_pt(tp, tp + fp, eps=eps, empty_as_nan=empty_as_nan)
+    return _reduce_metric_pt(precision, reduction=reduction)
+
+
+@METRIC_REGISTRY.register()
+def cal_logit_recall_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
+                        channel: int = 0,
+                        target_threshold: float = 0.1,
+                        prob_threshold: float = 0.5,
+                        reduction: str = "mean",
+                        empty_as_nan: bool = True,
+                        eps: float = 1e-12):
+    """
+    Recall for one flood-logit channel.
+
+    Recall = TP / (TP + FN)
+    """
+    pred = ensure_4d_pt(pred)
+    target = ensure_4d_pt(target)
+    mask = ensure_4d_pt(mask)
+
+    if pred.shape[1] <= channel:
+        raise ValueError(f"[cal_logit_recall_pt] pred has {pred.shape[1]} channels, but channel={channel}")
+
+    m = mask > 0.5
+
+    prob = torch.sigmoid(pred[:, channel:channel + 1, :, :])
+    p_evt = (prob >= prob_threshold) & m
+    t_evt = (target >= target_threshold) & m
+
+    tp = sum_over_hw((p_evt & t_evt).to(pred.dtype))
+    fn = sum_over_hw(((~p_evt) & t_evt).to(pred.dtype))
+
+    recall = _safe_divide_metric_pt(tp, tp + fn, eps=eps, empty_as_nan=empty_as_nan)
+    return _reduce_metric_pt(recall, reduction=reduction)
+
+
+@METRIC_REGISTRY.register()
+def cal_logit_csi_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
+                     channel: int = 0,
+                     target_threshold: float = 0.1,
+                     prob_threshold: float = 0.5,
+                     reduction: str = "mean",
+                     empty_as_nan: bool = True,
+                     eps: float = 1e-12):
+    """
+    CSI for one flood-logit channel.
+
+    CSI = TP / (TP + FP + FN)
+    """
+    pred = ensure_4d_pt(pred)
+    target = ensure_4d_pt(target)
+    mask = ensure_4d_pt(mask)
+
+    if pred.shape[1] <= channel:
+        raise ValueError(f"[cal_logit_csi_pt] pred has {pred.shape[1]} channels, but channel={channel}")
+
+    m = mask > 0.5
+
+    prob = torch.sigmoid(pred[:, channel:channel + 1, :, :])
+    p_evt = (prob >= prob_threshold) & m
+    t_evt = (target >= target_threshold) & m
+
+    tp = sum_over_hw((p_evt & t_evt).to(pred.dtype))
+    fp = sum_over_hw((p_evt & (~t_evt)).to(pred.dtype))
+    fn = sum_over_hw(((~p_evt) & t_evt).to(pred.dtype))
+
+    csi = _safe_divide_metric_pt(tp, tp + fp + fn, eps=eps, empty_as_nan=empty_as_nan)
+    return _reduce_metric_pt(csi, reduction=reduction)
+
+
+@METRIC_REGISTRY.register()
+def cal_logit_prev_p_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
+                        channel: int = 0,
+                        prob_threshold: float = 0.5,
+                        reduction: str = "mean",
+                        eps: float = 1e-12):
+    """
+    Predicted prevalence for one flood-logit channel.
+
+    pred_prevalence = number of predicted positive pixels / number of valid AOI pixels
+    """
+    _ = target
+
+    pred = ensure_4d_pt(pred)
+    mask = ensure_4d_pt(mask)
+
+    if pred.shape[1] <= channel:
+        raise ValueError(f"[cal_logit_prev_p_pt] pred has {pred.shape[1]} channels, but channel={channel}")
+
+    m = mask > 0.5
+
+    prob = torch.sigmoid(pred[:, channel:channel + 1, :, :])
+    p_evt = (prob >= prob_threshold) & m
+
+    num_p = sum_over_hw(p_evt.to(pred.dtype))
+    denom = sum_over_hw(m.to(pred.dtype)).clamp_min(eps)
+
+    prev = num_p / denom
+    return _reduce_metric_pt(prev, reduction=reduction)
+
+
+@METRIC_REGISTRY.register()
+def cal_logit_prev_t_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
+                        target_threshold: float = 0.1,
+                        reduction: str = "mean",
+                        eps: float = 1e-12):
+    """
+    Target prevalence for a physical water-depth threshold.
+
+    This is useful for checking class imbalance for each logit threshold.
+    """
+    _ = pred
+
+    target = ensure_4d_pt(target)
+    mask = ensure_4d_pt(mask)
+
+    m = mask > 0.5
+    t_evt = (target >= target_threshold) & m
+
+    num_t = sum_over_hw(t_evt.to(target.dtype))
+    denom = sum_over_hw(m.to(target.dtype)).clamp_min(eps)
+
+    prev = num_t / denom
+    return _reduce_metric_pt(prev, reduction=reduction)
+
+
+# -------------------------------------------------------------------------
+# Ordinal-logit interval metrics
+# -------------------------------------------------------------------------
+# Convert three ordinal logits into interval predictions:
+#
+#   nonflood: prob_tau01 < 0.5
+#   slight:   prob_tau01 >= 0.5 and prob_tau05 < 0.5
+#   severe:   prob_tau05 >= 0.5 and prob_tau10 < 0.5
+#   extreme:  prob_tau10 >= 0.5
+#
+# Target intervals are defined by physical water depth:
+#
+#   nonflood: 0.0 <= h < 0.1
+#   slight:   0.1 <= h < 0.5
+#   severe:   0.5 <= h < 1.0
+#   extreme:  h >= 1.0
+# -------------------------------------------------------------------------
+
+
+def _logit_interval_pred_mask(pred: torch.Tensor,
+                              interval: str,
+                              prob_threshold: float = 0.5):
+    """
+    Build predicted interval mask from ordinal logits.
+
+    pred: [B, 3, H, W]
+    """
+    if pred.shape[1] < 3:
+        raise ValueError(f"Ordinal interval metrics require pred with 3 channels, got {pred.shape}")
+
+    p1 = torch.sigmoid(pred[:, 0:1, :, :]) >= prob_threshold  # h >= 0.1
+    p2 = torch.sigmoid(pred[:, 1:2, :, :]) >= prob_threshold  # h >= 0.5
+    p3 = torch.sigmoid(pred[:, 2:3, :, :]) >= prob_threshold  # h >= 1.0
+
+    interval = str(interval).lower().strip()
+
+    if interval in ("nonflood", "nonflood01", "dry"):
+        return ~p1
+
+    if interval in ("slight", "slight01_05", "slightflood"):
+        return p1 & (~p2)
+
+    if interval in ("severe", "severe05_1", "severeflood"):
+        return p2 & (~p3)
+
+    if interval in ("extreme", "extreme1", "extremeflood"):
+        return p3
+
+    raise ValueError(f"[logit interval] Unknown interval: {interval}")
+
+
+def _target_interval_mask(target: torch.Tensor,
+                          interval: str,
+                          low: Optional[float] = None,
+                          high: Optional[float] = None):
+    """
+    Build target interval mask from physical water depth.
+
+    If low/high are provided, they override the named interval.
+    """
+    interval = str(interval).lower().strip()
+
+    if low is not None or high is not None:
+        m = torch.ones_like(target, dtype=torch.bool)
+        if low is not None:
+            m = m & (target >= float(low))
+        if high is not None:
+            m = m & (target < float(high))
+        return m
+
+    if interval in ("nonflood", "nonflood01", "dry"):
+        return (target >= 0.0) & (target < 0.1)
+
+    if interval in ("slight", "slight01_05", "slightflood"):
+        return (target >= 0.1) & (target < 0.5)
+
+    if interval in ("severe", "severe05_1", "severeflood"):
+        return (target >= 0.5) & (target < 1.0)
+
+    if interval in ("extreme", "extreme1", "extremeflood"):
+        return target >= 1.0
+
+    raise ValueError(f"[target interval] Unknown interval: {interval}")
+
+
+@METRIC_REGISTRY.register()
+def cal_logit_precision_band_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
+                                interval: str = "slight",
+                                target_low: Optional[float] = None,
+                                target_high: Optional[float] = None,
+                                prob_threshold: float = 0.5,
+                                reduction: str = "mean",
+                                empty_as_nan: bool = True,
+                                eps: float = 1e-12):
+    """
+    Interval precision from ordinal flood logits.
+
+    Example:
+      interval='slight'
+      predicted slight = P(h>=0.1)>=0.5 and P(h>=0.5)<0.5
+      target slight    = 0.1 <= h < 0.5
+
+    Precision = TP_interval / predicted_interval
+    """
+    pred = ensure_4d_pt(pred)
+    target = ensure_4d_pt(target)
+    mask = ensure_4d_pt(mask)
+
+    m = mask > 0.5
+
+    p_band = _logit_interval_pred_mask(pred, interval=interval, prob_threshold=prob_threshold) & m
+    t_band = _target_interval_mask(target, interval=interval, low=target_low, high=target_high) & m
+
+    tp = sum_over_hw((p_band & t_band).to(pred.dtype))
+    fp = sum_over_hw((p_band & (~t_band)).to(pred.dtype))
+
+    precision = _safe_divide_metric_pt(tp, tp + fp, eps=eps, empty_as_nan=empty_as_nan)
+    return _reduce_metric_pt(precision, reduction=reduction)
+
+
+@METRIC_REGISTRY.register()
+def cal_logit_recall_band_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
+                             interval: str = "slight",
+                             target_low: Optional[float] = None,
+                             target_high: Optional[float] = None,
+                             prob_threshold: float = 0.5,
+                             reduction: str = "mean",
+                             empty_as_nan: bool = True,
+                             eps: float = 1e-12):
+    """
+    Interval recall from ordinal flood logits.
+
+    Recall = TP_interval / target_interval
+    """
+    pred = ensure_4d_pt(pred)
+    target = ensure_4d_pt(target)
+    mask = ensure_4d_pt(mask)
+
+    m = mask > 0.5
+
+    p_band = _logit_interval_pred_mask(pred, interval=interval, prob_threshold=prob_threshold) & m
+    t_band = _target_interval_mask(target, interval=interval, low=target_low, high=target_high) & m
+
+    tp = sum_over_hw((p_band & t_band).to(pred.dtype))
+    fn = sum_over_hw(((~p_band) & t_band).to(pred.dtype))
+
+    recall = _safe_divide_metric_pt(tp, tp + fn, eps=eps, empty_as_nan=empty_as_nan)
+    return _reduce_metric_pt(recall, reduction=reduction)
+
+
+@METRIC_REGISTRY.register()
+def cal_logit_prev_p_band_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
+                             interval: str = "slight",
+                             prob_threshold: float = 0.5,
+                             reduction: str = "mean",
+                             eps: float = 1e-12):
+    """
+    Predicted prevalence for an interval predicted by ordinal logits.
+    """
+    _ = target
+
+    pred = ensure_4d_pt(pred)
+    mask = ensure_4d_pt(mask)
+
+    m = mask > 0.5
+
+    p_band = _logit_interval_pred_mask(pred, interval=interval, prob_threshold=prob_threshold) & m
+
+    num_p = sum_over_hw(p_band.to(pred.dtype))
+    denom = sum_over_hw(m.to(pred.dtype)).clamp_min(eps)
+
+    prev = num_p / denom
+    return _reduce_metric_pt(prev, reduction=reduction)
+
+
+@METRIC_REGISTRY.register()
+def cal_logit_prev_t_band_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
+                             interval: str = "slight",
+                             target_low: Optional[float] = None,
+                             target_high: Optional[float] = None,
+                             reduction: str = "mean",
+                             eps: float = 1e-12):
+    """
+    Target prevalence for a physical water-depth interval.
+    """
+    _ = pred
+
+    target = ensure_4d_pt(target)
+    mask = ensure_4d_pt(mask)
+
+    m = mask > 0.5
+
+    t_band = _target_interval_mask(target, interval=interval, low=target_low, high=target_high) & m
+
+    num_t = sum_over_hw(t_band.to(target.dtype))
+    denom = sum_over_hw(m.to(target.dtype)).clamp_min(eps)
+
+    prev = num_t / denom
+    return _reduce_metric_pt(prev, reduction=reduction)

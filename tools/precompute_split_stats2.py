@@ -386,70 +386,6 @@ def compute_h_wet_ratio_and_pos_weight_fine_raw(train_rows, tau=0.05):
     return wet_ratio, pos_weight
 
 
-def compute_h_flood_interval_stats_fine_raw(
-    train_rows,
-    thresholds=(0.1, 0.5, 1.0),
-):
-    """
-    Based on fine-grid RAW water depth (no transform), masked by mask_fine.
-
-    Intervals:
-      - nonflood: h < t1
-      - slightflood: t1 <= h < t2
-      - severeflood: t2 <= h < t3
-      - extremeflood: h >= t3
-
-    Returns counts and AOI ratios on TRAIN only.
-    """
-    t1, t2, t3 = [float(x) for x in thresholds]
-
-    total = 0
-    counts = {
-        "nonflood": 0,
-        "slightflood": 0,
-        "severeflood": 0,
-        "extremeflood": 0,
-    }
-
-    for r in train_rows:
-        arr = _load_npy_shape(r['fine_path'], dtype=np.float32)
-        m = _load_npy_shape(r['mask_fine_path'], expect_shape=arr.shape, dtype=np.uint8)
-
-        sel = np.isfinite(arr) & (m == 1)
-        if not np.any(sel):
-            continue
-
-        x = arr[sel]
-        total += int(x.size)
-
-        counts["nonflood"] += int(np.sum(x < t1))
-        counts["slightflood"] += int(np.sum((x >= t1) & (x < t2)))
-        counts["severeflood"] += int(np.sum((x >= t2) & (x < t3)))
-        counts["extremeflood"] += int(np.sum(x >= t3))
-
-    ratios = {k: float(v / max(total, 1)) for k, v in counts.items()}
-
-    out = {
-        "thresholds_m": {
-            "nonflood_upper": t1,
-            "slightflood_lower": t1,
-            "slightflood_upper": t2,
-            "severeflood_lower": t2,
-            "severeflood_upper": t3,
-            "extremeflood_lower": t3,
-        },
-        "total_aoi_pixels_fine_raw": int(total),
-        "counts": {k: int(v) for k, v in counts.items()},
-        "ratios": ratios,
-        "note": (
-            "Computed on TRAIN only, using fine-grid raw water depth "
-            "(mask_fine==1 & isfinite). Ratios are interval pixel counts "
-            "divided by total AOI valid pixels."
-        ),
-    }
-    return out
-
-
 def compute_h_asinh_candidates_and_stats(
     train_rows,
     *,
@@ -462,30 +398,28 @@ def compute_h_asinh_candidates_and_stats(
     q_list = sorted(list(dict.fromkeys(q_list)))
 
     H = StreamingHistogram(bins=bins)
-    total_fine_valid = 0
+    wet_total = 0
 
-    # pass 1: min/max for histogram range
     for r in train_rows:
         arr = _load_npy_shape(r['fine_path'], dtype=np.float32)
         m = _load_npy_shape(r['mask_fine_path'], expect_shape=arr.shape, dtype=np.uint8)
-        sel = np.isfinite(arr) & (m == 1)
+        sel = np.isfinite(arr) & (m == 1) & (arr >= tau)
         if not np.any(sel):
             continue
-        x = arr[sel].astype(np.float64, copy=False)
-        total_fine_valid += int(x.size)
-        H.update_minmax(x)
+        xw = arr[sel].astype(np.float64, copy=False)
+        wet_total += int(xw.size)
+        H.update_minmax(xw)
 
     H.allocate()
 
-    # pass 2: histogram counts
     for r in train_rows:
         arr = _load_npy_shape(r['fine_path'], dtype=np.float32)
         m = _load_npy_shape(r['mask_fine_path'], expect_shape=arr.shape, dtype=np.uint8)
-        sel = np.isfinite(arr) & (m == 1)
+        sel = np.isfinite(arr) & (m == 1) & (arr >= tau)
         if not np.any(sel):
             continue
-        x = arr[sel].astype(np.float64, copy=False)
-        H.update_hist(x)
+        xw = arr[sel].astype(np.float64, copy=False)
+        H.update_hist(xw)
 
     s_candidates: Dict[str, float] = {}
     for q in q_list:
@@ -537,8 +471,8 @@ def compute_h_asinh_candidates_and_stats(
         "tau_wet_raw_m": float(tau),
         "h_asinh_scale_candidates": s_candidates,
         "asinh_by_q": asinh_by_q,
-        "fine_valid_total_raw": int(total_fine_valid),
-        "percentile_note": "Quantiles computed via histogram on fine-grid RAW valid pixels (mask_fine==1 & isfinite).",
+        "wet_total_fine_raw_ge_tau": int(wet_total),
+        "percentile_note": "Quantiles computed via histogram on fine-grid RAW wet pixels (mask_fine==1 & isfinite & h>=tau).",
         "stats_note": "All mean/std/min/max are exact streaming stats after transform (Welford).",
     }
     return out
@@ -631,18 +565,12 @@ def main():
     if args.target_var == 'h':
         wet_ratio, pos_weight = compute_h_wet_ratio_and_pos_weight_fine_raw(train_rows, tau=args.h_tau)
 
-        interval_stats = compute_h_flood_interval_stats_fine_raw(
-            train_rows,
-            thresholds=(args.h_tau, 0.5, 1.0),
-        )
-
         if args.h_transform == 'log1p':
             stats_var = compute_h_log1p_stats(train_rows)
             stats_var["tau_wet_raw_m"] = float(args.h_tau)
             stats_var["wet_ratio_fine_raw_tau"] = float(wet_ratio)
             stats_var["pos_weight_fine_raw_tau"] = float(pos_weight)
             stats_var["pos_weight_def"] = "neg/pos on fine-grid raw (mask_fine==1 & isfinite), pos=(h>=tau), neg=others"
-            stats_var["flood_interval_stats_fine_raw"] = interval_stats
         else:
             stats_var = compute_h_asinh_candidates_and_stats(
                 train_rows,
@@ -653,7 +581,6 @@ def main():
             stats_var["wet_ratio_fine_raw_tau"] = float(wet_ratio)
             stats_var["pos_weight_fine_raw_tau"] = float(pos_weight)
             stats_var["pos_weight_def"] = "neg/pos on fine-grid raw (mask_fine==1 & isfinite), pos=(h>=tau), neg=others"
-            stats_var["flood_interval_stats_fine_raw"] = interval_stats
 
         meta['stats_var'] = stats_var
         meta['stats_var_for'] = 'h'

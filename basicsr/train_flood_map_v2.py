@@ -11,7 +11,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # os.environ["CUDA_VISIBLE_DEVICES"] = "8"
 
 from basicsr.data import build_dataloader, build_dataset
-from basicsr.data.data_sampler import EnlargedSampler
+from basicsr.data.data_sampler import EnlargedSampler,IntervalBalancedSampler
 from basicsr.data.prefetch_dataloader import CPUPrefetcher, CUDAPrefetcher
 from basicsr.models import build_model
 from basicsr.utils import (AvgTimer, MessageLogger, check_resume, get_env_info, get_root_logger, get_time_str,
@@ -61,7 +61,28 @@ def create_train_val_dataloader(opt, logger):
         if phase == 'train':
             dataset_enlarge_ratio = dataset_opt.get('dataset_enlarge_ratio', 1)
             train_set = build_dataset(dataset_opt)
-            train_sampler = EnlargedSampler(train_set, opt['world_size'], opt['rank'], dataset_enlarge_ratio)
+
+            sampler_cfg = dataset_opt.get('sampler', {}) or {}
+            sampler_type = str(sampler_cfg.get('type', 'enlarged')).lower()
+
+            if sampler_type in ('enlarged', 'default'):
+                train_sampler = EnlargedSampler(
+                    train_set,
+                    opt['world_size'],
+                    opt['rank'],
+                    dataset_enlarge_ratio
+                )
+            elif sampler_type in ('interval_balanced', 'interval-balanced'):
+                train_sampler = IntervalBalancedSampler(
+                    train_set,
+                    opt['world_size'],
+                    opt['rank'],
+                    dataset_enlarge_ratio,
+                    sampler_cfg=sampler_cfg
+                )
+            else:
+                raise ValueError(f'[ERROR] Unknown train sampler type: {sampler_type}')
+
             train_loader = build_dataloader(
                 train_set,
                 dataset_opt,
@@ -77,6 +98,7 @@ def create_train_val_dataloader(opt, logger):
             logger.info('Training statistics:'
                         f'\n\tNumber of train images: {len(train_set)}'
                         f'\n\tDataset enlarge ratio: {dataset_enlarge_ratio}'
+                        f'\n\tTrain sampler type: {sampler_type}'
                         f'\n\tBatch size per gpu: {dataset_opt["batch_size_per_gpu"]}'
                         f'\n\tWorld size (gpu number): {opt["world_size"]}'
                         f'\n\tRequire iter number per epoch: {num_iter_per_epoch}'

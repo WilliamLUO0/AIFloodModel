@@ -59,6 +59,16 @@ class FMSRModel(BaseModel):
         else:
             raise RuntimeError(f'[ERROR] pixel_opt (MaskL1Loss) is not configured.')
 
+        if train_opt.get('ordinal_opt'):
+            self.loss_ordinalbce = build_loss(train_opt['ordinal_opt']).to(self.device)
+        else:
+            self.loss_ordinalbce = None
+
+        if train_opt.get('nonflood_opt'):
+            self.loss_nonflood = build_loss(train_opt['nonflood_opt']).to(self.device)
+        else:
+            self.loss_nonflood = None
+
         if train_opt.get('slight_opt'):
             self.loss_slight = build_loss(train_opt['slight_opt']).to(self.device)
         else:
@@ -190,6 +200,16 @@ class FMSRModel(BaseModel):
         l_total += l_pix
         loss_dict['l_pix'] = l_pix
 
+        if self.loss_ordinalbce is not None:
+            l_ordinalbce = self.loss_ordinalbce(self.output_flood_logit, self.fine_fm, mask=self.mask)
+            l_total += l_ordinalbce
+            loss_dict['l_ordinalbce'] = l_ordinalbce
+
+        if self.loss_nonflood is not None:
+            l_nonflood = self.loss_nonflood(self.output, self.fine_fm, mask=self.mask)
+            l_total += l_nonflood
+            loss_dict['l_nonflood'] = l_nonflood
+
         if self.loss_slight is not None:
             l_slight = self.loss_slight(self.output, self.fine_fm, mask=self.mask)
             l_total += l_slight
@@ -260,17 +280,27 @@ class FMSRModel(BaseModel):
     def nondist_validation(self, dataloader, current_iter, tb_logger, save_flood_map):
         dataset_name = dataloader.dataset.opt['name']
         with_metrics = self.opt['val'].get('metrics') is not None
+        with_logit_metrics = self.opt['val'].get('logit_metrics') is not None
         use_pbar = self.opt['val'].get('pbar', False)
 
-        if with_metrics:
+        if with_metrics or with_logit_metrics:
+            all_metric_keys = []
+
+            if with_metrics:
+                all_metric_keys += list(self.opt['val']['metrics'].keys())
+
+            if with_logit_metrics:
+                all_metric_keys += [f"logit_{k}" for k in self.opt['val']['logit_metrics'].keys()]
+
             if not hasattr(self, 'metric_results'):
                 # execute in the first run
-                self.metric_results = {metric: 0 for metric in self.opt['val']['metrics'].keys()}
-                self.metric_counts = {metric: 0 for metric in self.opt['val']['metrics'].keys()}
+                self.metric_results = {metric: 0 for metric in all_metric_keys}
+                self.metric_counts = {metric: 0 for metric in all_metric_keys}
+
             self._initialize_best_metric_results(dataset_name)
             # reset current metrics
-            self.metric_results = {metric: 0 for metric in self.metric_results}
-            self.metric_counts = {metric: 0 for metric in self.metric_counts}
+            self.metric_results = {metric: 0 for metric in all_metric_keys}
+            self.metric_counts = {metric: 0 for metric in all_metric_keys}
 
         stats_var = getattr(dataloader.dataset, 'stats_var', None)
         var_name = getattr(dataloader.dataset, 'target_var', 'h')
@@ -325,6 +355,28 @@ class FMSRModel(BaseModel):
                             self.metric_results[name] += fv
                             self.metric_counts[name] += 1
 
+            if with_logit_metrics:
+                for name, opt_ in self.opt['val']['logit_metrics'].items():
+                    config_keys = {'better'}
+                    opt_clean = {k: v for k, v in opt_.items() if k not in config_keys}
+                    val = calculate_metric(
+                        {'pred': self.output_flood_logit, 'target': simu_phy, 'mask': eval_mask},
+                        opt_clean
+                    )
+                    metric_name = f"logit_{name}"
+                    if torch.is_tensor(val):
+                        v = val.detach()
+                        v = v.view(-1)
+                        finite = torch.isfinite(v)
+                        if finite.any():
+                            self.metric_results[metric_name] += v[finite].sum().item()
+                            self.metric_counts[metric_name] += int(finite.sum().item())
+                    else:
+                        fv = float(val)
+                        if np.isfinite(fv):
+                            self.metric_results[metric_name] += fv
+                            self.metric_counts[metric_name] += 1
+
             if save_flood_map:
                 if self.meta is not None and isinstance(self.meta, dict):
                     save_dir = osp.join(self.opt['path']['visualization'], flood_map_name)
@@ -351,7 +403,7 @@ class FMSRModel(BaseModel):
         if use_pbar:
             pbar.close()
 
-        if with_metrics:
+        if with_metrics or with_logit_metrics:
             for metric in self.metric_results.keys():
                 c = self.metric_counts.get(metric, 0)
                 if c > 0:
