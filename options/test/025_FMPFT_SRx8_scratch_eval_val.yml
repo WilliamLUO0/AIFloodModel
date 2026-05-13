@@ -1,5 +1,5 @@
 # general settings
-name: 025_FMPFT_SRx8_inba_l1_bce
+name: 025_FMPFT_SRx8_scratch_eval_val
 model_type: FMSRModel
 scale: 16
 num_gpu: 1

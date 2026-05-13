@@ -273,6 +273,27 @@ class FMSRModel(BaseModel):
 
         return x
 
+    def _initialize_best_metric_results(self, dataset_name):
+        """Initialize the best metric results dict for recording the best metric value and iteration."""
+        if hasattr(self, 'best_metric_results') and dataset_name in self.best_metric_results:
+            return
+        elif not hasattr(self, 'best_metric_results'):
+            self.best_metric_results = dict()
+
+        record = dict()
+
+        for metric, content in self.opt['val'].get('metrics', {}).items():
+            better = content.get('better', 'higher')
+            init_val = float('-inf') if better == 'higher' else float('inf')
+            record[metric] = dict(better=better, val=init_val, iter=-1)
+
+        for metric, content in self.opt['val'].get('logit_metrics', {}).items():
+            better = content.get('better', 'higher')
+            init_val = float('-inf') if better == 'higher' else float('inf')
+            record[f'logit_{metric}'] = dict(better=better, val=init_val, iter=-1)
+
+        self.best_metric_results[dataset_name] = record
+
     def dist_validation(self, dataloader, current_iter, tb_logger, save_flood_map):
         if self.opt['rank'] == 0:
             self.nondist_validation(dataloader, current_iter, tb_logger, save_flood_map)
