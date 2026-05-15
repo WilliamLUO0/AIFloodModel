@@ -131,117 +131,24 @@ def gather_vals(paths, mask_paths, postprocess=None):
 
 def cal_stats_on_train(rows, train_ids_set, var='static'):
     """
-    h (water depth): log1p + clip[p1, p99] + z-score
-    u (water velocity in x-direction): asinh(x/|x|_p90) + clip[p1, p99] + z-score
-    v (water velocity in y-direction): asinh(x/|x|_p90) + clip[p1, p99] + z-score
-    Elevation  : clip[p1, p99] + z-score
-    Roughness  : clip[p1, p99] + z-score
-    TWI        : clip[p1, p99] + z-score
-    Slope_deg  : / 90
-    Aspect_Sin : skip
-    Aspect_COS : skip
-    Mask       : skip
+    DEPRECATED. Do not use.
+
+    The legacy in-code stats computation produced a JSON schema that is
+    incompatible with the dataset / loss readers (no ``shared`` block, no
+    ``asinh_by_q`` block, no ``aux_stats``, no ``pos_weight_fine_raw_tau``).
+    Calling it would silently write a broken split_stats JSON.
+
+    Pre-compute the split_stats JSON via the scripts under ``tools/``
+    (e.g. ``tools/precompute_split_stats*.py``) BEFORE training, point
+    ``split_cfg.split_stats_json`` in your YAML at that file, and keep
+    ``stats.calculate_if_missing`` set to ``false`` (or omit it).
     """
-    train_rows = [r for r in rows if int(r['_row_id']) in train_ids_set]
-
-    if var in ('h', 'u', 'v'):
-        train_rows = [r for r in train_rows if str(r.get('var', '')).lower() == var]
-    else:
-        train_rows = [r for r in train_rows if str(r.get('var', '')).lower() == 'h']
-
-    if var == 'static':
-        # mask_fine -> elevation + roughness + twi
-        p_mask_fine = [r['mask_fine_path'] for r in train_rows]
-
-        # elevation
-        p_elev = [r['elev_path'] for r in train_rows]
-        elev_vals = gather_vals(p_elev, p_mask_fine, postprocess=None)
-        e_p1 = cal_percentile(elev_vals, 1.0)
-        e_p99 = cal_percentile(elev_vals, 99.0)
-        elev_vals_clip = percentile_clip(elev_vals, e_p1, e_p99)
-        e_mean, e_std = cal_mean_std(elev_vals_clip)
-
-        # roughness
-        p_rough = [r['rough_path'] for r in train_rows]
-        rough_vals = gather_vals(p_rough, p_mask_fine, postprocess=None)
-        r_p1 = cal_percentile(rough_vals, 1.0)
-        r_p99 = cal_percentile(rough_vals, 99.0)
-        rough_vals_clip = percentile_clip(rough_vals, r_p1, r_p99)
-        r_mean, r_std = cal_mean_std(rough_vals_clip)
-
-        # twi
-        p_twi = [r['twi_path'] for r in train_rows]
-        twi_vals = gather_vals(p_twi, p_mask_fine, postprocess=None)
-        t_p1 = cal_percentile(twi_vals, 1.0)
-        t_p99 = cal_percentile(twi_vals, 99.0)
-        twi_vals_clip = percentile_clip(twi_vals, t_p1, t_p99)
-        t_mean, t_std = cal_mean_std(twi_vals_clip)
-
-        stats = {
-            "elevation": {"p1": e_p1, "p99": e_p99, "mean": e_mean, "std": e_std},
-            "twi": {"p1": t_p1, "p99": t_p99, "mean": t_mean, "std": t_std},
-            "roughness": {"p1": r_p1, "p99": r_p99, "mean": r_mean, "std": r_std},
-        }
-        return stats
-
-    elif var == 'h':
-        # mask_coarse -> coarse-grid flood map
-        p_coarse = [r['coarse_path'] for r in train_rows]
-        p_mask_coarse = [r['mask_coarse_path'] for r in train_rows]
-
-        # h -> log1p + clip + zscore
-        coarse_log_vals = gather_vals(p_coarse, p_mask_coarse, postprocess=cal_log1p)
-        c_p1 = cal_percentile(coarse_log_vals, 1.0)
-        c_p99 = cal_percentile(coarse_log_vals, 99.0)
-        coarse_log_vals_clip = percentile_clip(coarse_log_vals, c_p1, c_p99)
-        c_mean, c_std = cal_mean_std(coarse_log_vals_clip)
-
-        stats = {
-            "coarse": {
-                "after": "log1p_clip_zscore",
-                "p1": c_p1, "p99": c_p99,
-                "mean": c_mean, "std": c_std
-            }
-        }
-        return stats
-
-    elif var in ('u', 'v'):
-        # mask_coarse -> coarse-grid flood map
-        p_coarse = [r['coarse_path'] for r in train_rows]
-        p_mask_coarse = [r['mask_coarse_path'] for r in train_rows]
-
-        # u, v -> asinh + zscore
-        coarse_vals = gather_vals(p_coarse, p_mask_coarse, postprocess=None)
-        if coarse_vals.size == 0:
-            asinh_scale = float('nan')
-            coarse_asinh_vals = coarse_vals
-        else:
-            coarse_abs_vals = np.abs(coarse_vals)
-            asinh_scale = cal_percentile(coarse_abs_vals, 90.0)
-            # use median or 1.0
-            if (asinh_scale is None) or (not np.isfinite(asinh_scale)) or (asinh_scale <= 0):
-                coarse_abs_med = float(np.median(coarse_abs_vals)) if coarse_abs_vals.size > 0 else float('nan')
-                asinh_scale = coarse_abs_med if (np.isfinite(coarse_abs_med) and coarse_abs_med > 0) else 1.0
-            asinh_scale = max(float(asinh_scale), 1e-6)
-            coarse_asinh_vals = cal_asinh_p90(coarse_vals, asinh_scale)
-
-        c_p1 = cal_percentile(coarse_asinh_vals, 1.0)
-        c_p99 = cal_percentile(coarse_asinh_vals, 99.0)
-        coarse_asinh_vals_clip = percentile_clip(coarse_asinh_vals, c_p1, c_p99)
-        c_mean, c_std = cal_mean_std(coarse_asinh_vals_clip)
-
-        stats = {
-            "coarse": {
-                "after": "asinh_clip_zscore",
-                "asinh_scale": asinh_scale,
-                "p1": c_p1, "p99": c_p99,
-                "mean": c_mean, "std": c_std
-            }
-        }
-        return stats
-
-    else:
-        raise ValueError(f'[ERROR] Unknown var: {var}. Expected "static", "h", "u", or "v".')
+    raise NotImplementedError(
+        "cal_stats_on_train() has been deprecated. Pre-compute the split_stats "
+        "JSON with tools/precompute_split_stats*.py and reference it from the "
+        "YAML (split_cfg.split_stats_json). The in-code fallback was removed "
+        "because its output schema did not match the dataset/loss readers."
+    )
 
 
 def destand_to_physical(z, var, stats_var, transform, h_asinh_q):

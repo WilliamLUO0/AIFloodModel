@@ -1,90 +1,37 @@
 #!/bin/bash
-#SBATCH --job-name=pack_dataset_ds8
+#SBATCH --job-name=pack_ds8
 #SBATCH --account=uoa04425
 #SBATCH --partition=milan
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=32G
-#SBATCH --time=48:00:00
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=16G
+#SBATCH --time=120:00:00
 #SBATCH --output=logs/%x_%j.out
 #SBATCH --error=logs/%x_%j.err
 
 set -euo pipefail
 
-# ==============================
-# User settings
-# ==============================
-
 SRC_DIR="/nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8"
 OUT_DIR="/nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/archive"
-
 ARCHIVE_NAME="dataset_ds8.tar.gz"
-ARCHIVE_PATH="${OUT_DIR}/${ARCHIVE_NAME}"
-SHA_PATH="${ARCHIVE_PATH}.sha256"
 
-N_THREADS="${SLURM_CPUS_PER_TASK:-16}"
+mkdir -p "$OUT_DIR" logs
 
-# ==============================
-# Preparation
-# ==============================
+echo "Start: $(date)"
+echo "Source: $SRC_DIR"
+echo "Output: $OUT_DIR/$ARCHIVE_NAME"
 
-mkdir -p "${OUT_DIR}"
+tar -C "$(dirname "$SRC_DIR")" -cf - "$(basename "$SRC_DIR")" \
+  | pigz -p "${SLURM_CPUS_PER_TASK:-8}" -1 \
+  > "$OUT_DIR/$ARCHIVE_NAME"
 
-echo "Source directory: ${SRC_DIR}"
-echo "Output archive:   ${ARCHIVE_PATH}"
-echo "SHA256 file:      ${SHA_PATH}"
-echo "Threads:          ${N_THREADS}"
-echo "Start time:       $(date)"
-echo
+echo "Compression finished: $(date)"
 
-if [ ! -d "${SRC_DIR}" ]; then
-    echo "ERROR: Source directory does not exist: ${SRC_DIR}"
-    exit 1
-fi
+cd "$OUT_DIR"
+sha256sum "$ARCHIVE_NAME" > "$ARCHIVE_NAME.sha256"
 
-# Avoid overwriting existing archive by accident
-if [ -f "${ARCHIVE_PATH}" ]; then
-    echo "ERROR: Archive already exists: ${ARCHIVE_PATH}"
-    echo "Please remove it manually or change ARCHIVE_NAME."
-    exit 1
-fi
+echo "SHA256:"
+cat "$ARCHIVE_NAME.sha256"
 
-# ==============================
-# Compress
-# ==============================
-
-echo "Compressing dataset..."
-
-tar \
-    -C "$(dirname "${SRC_DIR}")" \
-    -cf - "$(basename "${SRC_DIR}")" \
-    | pigz -p "${N_THREADS}" -9 > "${ARCHIVE_PATH}"
-
-echo "Compression finished."
-echo
-
-# ==============================
-# Generate checksum
-# ==============================
-
-echo "Generating SHA256 checksum..."
-
-cd "${OUT_DIR}"
-sha256sum "${ARCHIVE_NAME}" > "${SHA_PATH}"
-
-echo "Checksum generated:"
-cat "${SHA_PATH}"
-echo
-
-# ==============================
-# Basic archive test
-# ==============================
-
-echo "Testing archive integrity..."
-
-tar -tzf "${ARCHIVE_PATH}" > /dev/null
-
-echo "Archive test passed."
-echo "End time: $(date)"
-echo "Done."
+echo "Done: $(date)"

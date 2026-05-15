@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=fmpft_sr16_gpu4_028_FMPFT_SRx8_inba_l1_bce_focal
+#SBATCH --job-name=fmpft_sr16_gpu4_028_FMPFT_SRx8_inba_l1_bce_range
 #SBATCH --account=uoa04425
 #SBATCH --partition=milan,genoa
 #SBATCH --nodes=1
@@ -30,6 +30,6 @@ export PYTHONUNBUFFERED=1
 nvidia-smi
 
 srun torchrun --nproc_per_node=4 --standalone \
-  basicsr/train_flood_map_v2.py -opt options/train/028_FMPFT_SRx8_inba_l1_bce_focal.yml \
+  basicsr/train_flood_map_v2.py -opt options/train/028_FMPFT_SRx8_inba_l1_bce_range.yml \
   --launcher pytorch --auto_resume
 

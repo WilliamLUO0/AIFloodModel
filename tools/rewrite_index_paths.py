@@ -22,8 +22,8 @@ from typing import Dict
 
 DEFAULT_RULES: Dict[str, str] = {
     # NeSI -> NIWA (AIFloodModel dataset)
-    "/nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset":
-        "/esi/project/niwa04345/luoz/AIFloodModel/dataset_backup",
+    "/nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8":
+        "/esi/project/niwa04345/luoz/AIFloodModel/dataset_ds8",
 
     # NeSI -> NIWA (Gisborne basin results)
     "/nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/results":

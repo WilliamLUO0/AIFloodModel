@@ -1,3 +1,4 @@
+import math
 import os
 import time
 import torch
@@ -64,13 +65,24 @@ class BaseModel():
         self.best_metric_results[dataset_name] = record
 
     def _update_best_metric_result(self, dataset_name, metric, val, current_iter):
+        # Skip non-finite values (NaN / +-inf) so the "best" entry isn't polluted
+        # and stays at its sentinel (-inf for higher-is-better, +inf for lower-is-
+        # better). This commonly happens with conditional metrics (e.g. csi_extreme
+        # when no extreme pixels exist in the validation batch), which legitimately
+        # return NaN rather than 0.
+        try:
+            fv = float(val)
+        except (TypeError, ValueError):
+            return
+        if not math.isfinite(fv):
+            return
         if self.best_metric_results[dataset_name][metric]['better'] == 'higher':
-            if val >= self.best_metric_results[dataset_name][metric]['val']:
-                self.best_metric_results[dataset_name][metric]['val'] = val
+            if fv >= self.best_metric_results[dataset_name][metric]['val']:
+                self.best_metric_results[dataset_name][metric]['val'] = fv
                 self.best_metric_results[dataset_name][metric]['iter'] = current_iter
         else:
-            if val <= self.best_metric_results[dataset_name][metric]['val']:
-                self.best_metric_results[dataset_name][metric]['val'] = val
+            if fv <= self.best_metric_results[dataset_name][metric]['val']:
+                self.best_metric_results[dataset_name][metric]['val'] = fv
                 self.best_metric_results[dataset_name][metric]['iter'] = current_iter
 
     def model_ema(self, decay=0.999):

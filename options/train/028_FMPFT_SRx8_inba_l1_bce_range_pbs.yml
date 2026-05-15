@@ -1,5 +1,5 @@
 # general settings
-name: 028_FMPFT_SRx8_inba_l1_bce_focal
+name: 028_FMPFT_SRx8_inba_l1_bce_range
 model_type: FMSRModel
 scale: 8
 num_gpu: 4
@@ -13,8 +13,8 @@ datasets:
   train:
     name: FloodMapSR-Train-h
     type: PairedFloodMapDataset
-    dataroot: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8
-    index_csv: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8/index_with_interval_stats_h.csv
+    dataroot: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds8
+    index_csv: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds8/index_with_interval_stats_h_niwa.csv
     io_backend:
       type: disk
 
@@ -31,7 +31,7 @@ datasets:
       by: scenario
       val_ratio: 0.2
       seed: 61
-      split_stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8/split_stats_h_asinh_wet.json
+      split_stats_json: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds8/split_stats_h_asinh_wet.json
     stats:
       calculate_if_missing: false
       use_clip_coarse: false
@@ -42,10 +42,10 @@ datasets:
     sampler:
       type: interval_balanced
       score_mode: percentile_band
-      summary_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8/patch_interval_summary_h.json
+      summary_json: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds8/patch_interval_summary_h.json
       percentile_source: positive
       low_percentile: p75
-      high_percentile: p90
+      high_percentile: p99
       slight_alpha: 4.0
       severe_alpha: 2.0
       extreme_alpha: 2.0
@@ -63,8 +63,8 @@ datasets:
   val_1:
     name: FloodMapSR-Val-h
     type: PairedFloodMapDataset
-    dataroot: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8
-    index_csv: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8/index_with_interval_stats_h.csv
+    dataroot: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds8
+    index_csv: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds8/index_with_interval_stats_h_niwa.csv
     io_backend:
       type: disk
 
@@ -79,7 +79,7 @@ datasets:
       by: scenario
       val_ratio: 0.2
       seed: 61
-      split_stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8/split_stats_h_asinh_wet.json
+      split_stats_json: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds8/split_stats_h_asinh_wet.json
     stats:
       calculate_if_missing: false
       use_clip_coarse: false
@@ -90,7 +90,7 @@ datasets:
 
 # network structures
 network_g:
-  type: FloodMapPFTV4
+  type: FloodMapPFTV5
   upscale: 8
   coarse_in_chans: 3
   static_in_chans: 7
@@ -149,7 +149,7 @@ train:
     transform: asinh
     h_asinh_q: 90
     norm: zscore
-    stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8/split_stats_h_asinh_wet.json
+    stats_json: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds8/split_stats_h_asinh_wet.json
     use_wet_weight: true
     wet_lambda: 4.0
     use_depth_weight: true
@@ -170,15 +170,53 @@ train:
     transform: asinh
     h_asinh_q: 90
     norm: zscore
-    stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8/split_stats_h_asinh_wet.json
+    stats_json: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds8/split_stats_h_asinh_wet.json
     use_pos_weight: true
     pos_weight_min: 1.0
     pos_weight_max: 10.0
-    focal_gamma: 2.0
+    focal_gamma: 0.0
     alpha_pos: 0.75
     w1: 1.0
     w2: 1.0
     w3: 1.0
+    ignore_zero_mask: true
+    eps: 1.0e-12
+  slight_opt:
+    type: MaskRangeLoss
+    loss_weight: 0.1
+    range_low_m: 0.1
+    range_high_m: 0.5
+    range_is_physical: true
+    use_low: true
+    use_high: true
+    low_inclusive: true
+    high_inclusive: false
+    var: 'h'
+    transform: asinh
+    h_asinh_q: 90
+    norm: zscore
+    stats_json: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds8/split_stats_h_asinh_wet.json
+    range_loss_type: smoothl1
+    range_beta: 0.1
+    ignore_zero_mask: true
+    eps: 1.0e-12
+  deep_opt:
+    type: MaskRangeLoss
+    loss_weight: 0.1
+    range_low_m: 0.5
+    range_high_m: 0.0
+    range_is_physical: true
+    use_low: true
+    use_high: false
+    low_inclusive: true
+    high_inclusive: false
+    var: 'h'
+    transform: asinh
+    h_asinh_q: 90
+    norm: zscore
+    stats_json: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds8/split_stats_h_asinh_wet.json
+    range_loss_type: smoothl1
+    range_beta: 0.1
     ignore_zero_mask: true
     eps: 1.0e-12
 

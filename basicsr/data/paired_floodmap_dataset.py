@@ -101,16 +101,15 @@ datasets:
 import os
 import re
 import json
-import random
 import numpy as np
 from copy import deepcopy
 import torch
 from torch.utils import data as data
 
 from basicsr.utils import (
-    cal_log1p, cal_zscore, cal_minmaxnorm, cal_asinh_p90, group_by_scenario,
+    cal_log1p, cal_zscore, cal_minmaxnorm, cal_asinh_p90,
     percentile_clip, load_npy_shape, load_index_csv,
-    cal_stats_on_train, check_required_fields
+    check_required_fields, get_root_logger
 )
 from basicsr.data.transforms import augment_flood_map
 from basicsr.utils.registry import DATASET_REGISTRY
@@ -183,7 +182,16 @@ class PairedFloodMapDataset(data.Dataset):
         )
 
         stats_cfg = opt.get('stats', {}) or {}
-        self.calculate_if_missing = bool(stats_cfg.get('calculate_if_missing', True))
+        # NOTE: `calculate_if_missing` is kept for backward-compat with old yml,
+        # but is now ignored. The in-code stats computation was removed because
+        # its output schema did not match the dataset/loss readers and would
+        # silently produce broken split_stats JSONs. Pre-compute the JSON via
+        # tools/precompute_split_stats*.py and reference it via split_cfg.
+        if bool(stats_cfg.get('calculate_if_missing', False)):
+            get_root_logger().warning(
+                '[PairedFloodMapDataset] stats.calculate_if_missing=True is ignored. '
+                'split_stats JSON must be pre-computed via tools/precompute_split_stats*.py.'
+            )
         self.use_clip_coarse = bool(stats_cfg.get('use_clip_coarse', False))
         self.use_clip_static = bool(stats_cfg.get('use_clip_static', False))
         self.norm = str(stats_cfg.get('norm', 'zscore')).lower()
@@ -249,84 +257,57 @@ class PairedFloodMapDataset(data.Dataset):
 
     def _ensure_split_stats(self, rows, var: str, aux_vars=None):
         """
-        Read split_stats_json in .yml if existing,
-        otherwise use split_cfg to split dataset and calculate stats.
+        Load the split_stats JSON referenced by ``split_cfg.split_stats_json``.
+
+        The JSON must be pre-computed via ``tools/precompute_split_stats*.py``
+        before training. The legacy in-code fallback (which used to randomly
+        split + recompute stats here) has been removed because its output
+        schema did not match the dataset / loss readers and would silently
+        write a broken JSON.
+
+        The JSON is expected to contain the full schema:
+          - ``split.train`` / ``split.val`` (list of row ids)
+          - ``seed`` / ``val_ratio``
+          - ``stats``     (static feature stats)
+          - ``stats_var`` (target variable stats: ``shared`` and/or ``asinh_by_q``,
+                          plus ``pos_weight_fine_raw_tau`` when BCE losses are used)
+          - ``stats_var_for == var``
+          - ``aux_stats[name]`` for every name in ``aux_vars``
         """
         aux_vars = aux_vars or []
+        _ = rows  # rows are no longer used here; kept in the signature for back-compat.
 
-        if os.path.isfile(self.split_stats_json):
-            with open(self.split_stats_json, 'r') as f:
-                meta = json.load(f)
+        if not os.path.isfile(self.split_stats_json):
+            raise FileNotFoundError(
+                f'[ERROR] split_stats_json not found: {self.split_stats_json}\n'
+                f'Pre-compute it via tools/precompute_split_stats*.py before training.'
+            )
 
-            for k in ('split', 'seed', 'val_ratio'):
-                if k not in meta:
-                    raise RuntimeError(f'[ERROR] Invalid split_stats_json missing key: {k}')
-            if 'stats' not in meta:
-                raise RuntimeError(f'[ERROR] Invalid split_stats_json missing "stats"')
+        with open(self.split_stats_json, 'r') as f:
+            meta = json.load(f)
 
-            if 'stats_var' not in meta or meta.get('stats_var_for', None) != var:
-                ids_train = set(meta['split']['train'])
-                stats = meta['stats']
-                stats_var = cal_stats_on_train(rows, ids_train, var=var)
-                meta['stats'] = stats
-                meta['stats_var'] = stats_var
-                meta['stats_var_for'] = var
+        for k in ('split', 'seed', 'val_ratio', 'stats', 'stats_var'):
+            if k not in meta:
+                raise RuntimeError(
+                    f'[ERROR] split_stats_json (path: {self.split_stats_json}) missing key: {k}. '
+                    f'Re-generate the JSON via tools/precompute_split_stats*.py.'
+                )
 
-                if self.calculate_if_missing:
-                    os.makedirs(os.path.dirname(self.split_stats_json), exist_ok=True)
-                    with open(self.split_stats_json, 'w') as f:
-                        json.dump(meta, f, indent=2)
+        if meta.get('stats_var_for', None) != var:
+            raise RuntimeError(
+                f'[ERROR] split_stats_json (path: {self.split_stats_json}) has '
+                f'stats_var_for={meta.get("stats_var_for")}, expected {var}. '
+                f'Re-generate the JSON for var={var}.'
+            )
 
-            if self.phase == 'test':
-                if ('stats' not in meta) or ('stats_var' not in meta):
-                    raise RuntimeError(
-                        f'[ERROR] split_stats_json (path: {self.split_stats_json}) '
-                        f'missing stats/stats_var for {self.phase}'
-                    )
-                if meta.get('stats_var_for', None) != var:
-                    raise RuntimeError(
-                        f'[ERROR] split_stats_json (path: {self.split_stats_json}) '
-                        f'var is different with {var}'
-                    )
+        if 'zs' in aux_vars:
+            aux_stats = meta.get('aux_stats', {}) or {}
+            if 'zs' not in aux_stats:
+                raise RuntimeError(
+                    f'[ERROR] aux_vars includes "zs", but split_stats_json does not contain '
+                    f'meta["aux_stats"]["zs"]. Please regenerate stats json with --aux_vars zs'
+                )
 
-            if 'zs' in aux_vars:
-                aux_stats = meta.get('aux_stats', {}) or {}
-                if 'zs' not in aux_stats:
-                    raise RuntimeError(
-                        f'[ERROR] aux_vars includes "zs", but split_stats_json does not contain '
-                        f'meta["aux_stats"]["zs"]. Please regenerate stats json with --aux_vars zs'
-                    )
-
-            return meta
-
-        rng = random.Random(self.seed)
-        buckets = group_by_scenario(rows)
-        train_ids, val_ids = [], []
-        for sc, items in buckets.items():
-            ids = [int(r['_row_id']) for r in items]
-            rng.shuffle(ids)
-            n_val = max(1, int(round(len(ids) * self.val_ratio)))
-            val_ids.extend(ids[:n_val])
-            train_ids.extend(ids[n_val:])
-
-        train_ids_set = set(train_ids)
-        stats_static_feature = cal_stats_on_train(rows, train_ids_set, var='static')
-        stats_var = cal_stats_on_train(rows, train_ids_set, var=var)
-
-        meta = {
-            "seed": self.seed,
-            "val_ratio": self.val_ratio,
-            "split": {"train": train_ids, "val": val_ids},
-            "stats": stats_static_feature,
-            "stats_var": stats_var,
-            "stats_var_for": var,
-            "note": "Split by scenario with fixed seed; stats calculated on train only with masks."
-        }
-
-        if self.calculate_if_missing:
-            os.makedirs(os.path.dirname(self.split_stats_json), exist_ok=True)
-            with open(self.split_stats_json, 'w') as f:
-                json.dump(meta, f, indent=2)
         return meta
 
     def _infer_h_fine_path(self, fine_path_uv: str, src_var: str):
@@ -599,6 +580,21 @@ class PairedFloodMapDataset(data.Dataset):
         # -----------------------------
         coarse_fm = load_npy_shape(r['coarse_path'], expect_shape=(Hc, Hc))
         if (self.phase == 'test') and (not os.path.isfile(r.get('fine_path', ''))):
+            # Inference-only branch (real-world events without ground-truth fine
+            # flood map). We populate fine_fm with zeros so the rest of the
+            # pipeline (normalization, batching, model.feed_data) still works,
+            # but DOWNSTREAM EVAL METRICS COMPUTED ON THIS BATCH ARE
+            # MEANINGLESS. This branch should only ever be reached in pure
+            # inference, never in train/val.
+            if not getattr(self, '_warned_missing_fine_path', False):
+                get_root_logger().warning(
+                    f'[PairedFloodMapDataset] phase=test: fine_path missing for '
+                    f'row scenario={r.get("scenario")}, t={r.get("t")}, '
+                    f'patch=({r.get("patch_row")},{r.get("patch_col")}). '
+                    f'Returning zero fine_fm. Eval metrics on these patches '
+                    f'will be invalid; only use predictions for inference.'
+                )
+                self._warned_missing_fine_path = True
             fine_fm = np.zeros((Hf, Hf), dtype=np.float32)
         else:
             fine_fm = load_npy_shape(r['fine_path'], expect_shape=(Hf, Hf))

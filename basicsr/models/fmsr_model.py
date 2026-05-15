@@ -415,8 +415,13 @@ class FMSRModel(BaseModel):
 
                 np.save(osp.join(save_dir, save_flood_map_name), pred_phy.detach().cpu().numpy().astype(np.float32))
 
-            del self.coarse_fm, self.static_f, self.fine_fm, self.output, self.output_flood_logit
-            torch.cuda.empty_cache()
+            # NOTE: removed `del self.coarse_fm, ...` + `torch.cuda.empty_cache()` here.
+            # `del` only drops Python references (does not free GPU memory), and
+            # calling `empty_cache()` per validation sample is extremely slow
+            # (each call forces a CUDA sync + allocator flush). Tensors are
+            # naturally freed when the next `feed_data()` overwrites these
+            # attributes. If OOM ever occurs in validation, switch to a smaller
+            # model or move tensors to CPU for accumulation instead.
 
             if use_pbar:
                 pbar.update(1)
