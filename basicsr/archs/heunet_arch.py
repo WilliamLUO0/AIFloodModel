@@ -5,6 +5,29 @@ import torch.nn.functional as F
 from basicsr.utils.registry import ARCH_REGISTRY
 
 
+def _make_norm(norm, num_channels, gn_max_groups=8):
+    """Build a normalization layer of the requested type.
+
+    norm in {'bn', 'gn', 'none'}:
+        'bn'   -> nn.BatchNorm2d
+        'gn'   -> nn.GroupNorm with up to `gn_max_groups` groups; if
+                  num_channels is not divisible by gn_max_groups, falls
+                  back to the largest divisor of num_channels that is
+                  <= gn_max_groups (e.g. 10 channels -> 5 groups).
+        'none' -> nn.Identity (no normalization).
+    """
+    if norm == 'bn':
+        return nn.BatchNorm2d(num_channels)
+    if norm == 'gn':
+        g = min(gn_max_groups, num_channels)
+        while g > 1 and num_channels % g != 0:
+            g -= 1
+        return nn.GroupNorm(num_groups=g, num_channels=num_channels)
+    if norm == 'none':
+        return nn.Identity()
+    raise ValueError(f"norm must be one of 'bn'/'gn'/'none', got {norm!r}")
+
+
 class HeResUnit(nn.Module):
     """
     Residual unit used in a He et al.-style U-Net.
@@ -16,27 +39,25 @@ class HeResUnit(nn.Module):
 
     Here we use padding=1 to keep the spatial size unchanged.
     This is more convenient for patch-based flood map downscaling.
+
+    Args:
+        norm: 'bn' (batch norm, as in He 2023), 'gn' (group norm; recommended
+              when training with small per-device batch and/or biased samplers),
+              or 'none' (no norm).
     """
 
-    def __init__(self, in_ch, out_ch, norm=True):
+    def __init__(self, in_ch, out_ch, norm='bn'):
         super().__init__()
+        norm = (norm or 'none').lower()
 
-        if norm:
-            self.body = nn.Sequential(
-                nn.BatchNorm2d(in_ch),
-                nn.ReLU(inplace=True),
-                nn.Conv2d(in_ch, out_ch, 3, 1, 1),
-                nn.BatchNorm2d(out_ch),
-                nn.ReLU(inplace=True),
-                nn.Conv2d(out_ch, out_ch, 3, 1, 1),
-            )
-        else:
-            self.body = nn.Sequential(
-                nn.ReLU(inplace=True),
-                nn.Conv2d(in_ch, out_ch, 3, 1, 1),
-                nn.ReLU(inplace=True),
-                nn.Conv2d(out_ch, out_ch, 3, 1, 1),
-            )
+        self.body = nn.Sequential(
+            _make_norm(norm, in_ch),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(in_ch, out_ch, 3, 1, 1),
+            _make_norm(norm, out_ch),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_ch, out_ch, 3, 1, 1),
+        )
 
         self.shortcut = nn.Conv2d(in_ch, out_ch, 1, 1, 0)
 
@@ -73,7 +94,7 @@ class HeUNetFloodSR(nn.Module):
         num_flood_classes=3,
         interp_mode='bicubic',
         final_relu=False,
-        use_batchnorm=True,
+        norm='bn',
         **kwargs
     ):
         super().__init__()
@@ -83,31 +104,32 @@ class HeUNetFloodSR(nn.Module):
         self.static_in_chans = static_in_chans
         self.interp_mode = interp_mode
         self.final_relu = final_relu
+        self.norm = norm
 
         in_ch = coarse_in_chans + static_in_chans
 
         # Encoder
-        self.enc1 = HeResUnit(in_ch, base_ch, norm=use_batchnorm)
+        self.enc1 = HeResUnit(in_ch, base_ch, norm=norm)
         self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
 
-        self.enc2 = HeResUnit(base_ch, base_ch * 2, norm=use_batchnorm)
+        self.enc2 = HeResUnit(base_ch, base_ch * 2, norm=norm)
         self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
 
-        self.enc3 = HeResUnit(base_ch * 2, base_ch * 4, norm=use_batchnorm)
+        self.enc3 = HeResUnit(base_ch * 2, base_ch * 4, norm=norm)
         self.pool3 = nn.MaxPool2d(kernel_size=2, stride=2)
 
         # Bottleneck
-        self.bottleneck = HeResUnit(base_ch * 4, base_ch * 8, norm=use_batchnorm)
+        self.bottleneck = HeResUnit(base_ch * 4, base_ch * 8, norm=norm)
 
         # Decoder
         self.up3 = nn.ConvTranspose2d(base_ch * 8, base_ch * 4, kernel_size=2, stride=2)
-        self.dec3 = HeResUnit(base_ch * 8, base_ch * 4, norm=use_batchnorm)
+        self.dec3 = HeResUnit(base_ch * 8, base_ch * 4, norm=norm)
 
         self.up2 = nn.ConvTranspose2d(base_ch * 4, base_ch * 2, kernel_size=2, stride=2)
-        self.dec2 = HeResUnit(base_ch * 4, base_ch * 2, norm=use_batchnorm)
+        self.dec2 = HeResUnit(base_ch * 4, base_ch * 2, norm=norm)
 
         self.up1 = nn.ConvTranspose2d(base_ch * 2, base_ch, kernel_size=2, stride=2)
-        self.dec1 = HeResUnit(base_ch * 2, base_ch, norm=use_batchnorm)
+        self.dec1 = HeResUnit(base_ch * 2, base_ch, norm=norm)
 
         # Output heads
         self.depth_head = nn.Conv2d(base_ch, out_chans, kernel_size=1, stride=1, padding=0)

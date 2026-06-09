@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=plot_selected_patch_alignment
+#SBATCH --job-name=plot_selected_patch_alignment_dataset_ds8_filtered_thr0p1_min5100
 #SBATCH --account=uoa04425
 #SBATCH --partition=milan,genoa
 #SBATCH --nodes=1
@@ -7,8 +7,8 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=8G
 #SBATCH --time=12:00:00
-#SBATCH --output=logs/%x_%j.out
-#SBATCH --error=logs/%x_%j.err
+#SBATCH --output=logs1/%x_%j.out
+#SBATCH --error=logs1/%x_%j.err
 
 set -euo pipefail
 
@@ -27,8 +27,8 @@ export PYTHONUNBUFFERED=1
 export GDAL_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 export RASTERIO_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 
-DATASET_ROOT="/nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8"
-OUT_DIR="/nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_debug/selected_alignment_figures"
+DATASET_ROOT="/nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100"
+OUT_DIR="/nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_debug/selected_alignment_figures"
 
 SCENARIOS=(
   "100y_48h_0c"

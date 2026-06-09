@@ -199,11 +199,20 @@ class FMSRModel(BaseModel):
             l_pix = self.loss_pix(self.output, self.fine_fm, mask=self.mask)
         l_total += l_pix
         loss_dict['l_pix'] = l_pix
+        # Optional sub-component logging: macro losses populate `last_components`
+        # in forward (others leave it None / undefined). Merge keys verbatim so
+        # they appear in the print log and TensorBoard under their own prefix.
+        _pix_components = getattr(self.loss_pix, 'last_components', None)
+        if _pix_components is not None:
+            loss_dict.update(_pix_components)
 
         if self.loss_ordinalbce is not None:
             l_ordinalbce = self.loss_ordinalbce(self.output_flood_logit, self.fine_fm, mask=self.mask)
             l_total += l_ordinalbce
             loss_dict['l_ordinalbce'] = l_ordinalbce
+            _bce_components = getattr(self.loss_ordinalbce, 'last_components', None)
+            if _bce_components is not None:
+                loss_dict.update(_bce_components)
 
         if self.loss_nonflood is not None:
             l_nonflood = self.loss_nonflood(self.output, self.fine_fm, mask=self.mask)

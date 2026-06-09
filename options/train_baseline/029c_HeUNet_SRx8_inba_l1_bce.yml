@@ -1,5 +1,4 @@
-# general settings
-name: 029_HeUNet_SRx8_inba_l1_bce
+name: 029c_HeUNet_SRx8_inba_l1_bce
 model_type: FMSRModel
 scale: 8
 num_gpu: 4
@@ -39,18 +38,6 @@ datasets:
       norm: zscore
       transform: asinh
       h_asinh_q: 90
-    sampler:
-      type: interval_balanced
-      score_mode: percentile_band
-      summary_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8/patch_interval_summary_h.json
-      percentile_source: positive
-      low_percentile: p75
-      high_percentile: p90
-      slight_alpha: 4.0
-      severe_alpha: 2.0
-      extreme_alpha: 2.0
-      base_weight: 1.0
-      max_weight: 10.0
 
     # data loader
     num_worker_per_gpu: 8
@@ -99,7 +86,7 @@ network_g:
   num_flood_classes: 3
   interp_mode: bicubic
   final_relu: false
-  norm: bn
+  norm: gn
 
 # path
 path:
@@ -126,7 +113,7 @@ train:
 
   # losses
   pixel_opt:
-    type: MaskWeightedL1Loss
+    type: MaskWeightedL2Loss
     loss_weight: 1.0
     tau_flood_m: 0.1
     tau_is_physical: true
@@ -135,35 +122,11 @@ train:
     h_asinh_q: 90
     norm: zscore
     stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8/split_stats_h_asinh_wet.json
-    use_wet_weight: true
-    wet_lambda: 4.0
-    use_depth_weight: true
-    depth_mu: 2.0
-    depth_mode: exp
-    depth_scale: 1.0
+    use_wet_weight: false
+    wet_lambda: 0.0
+    use_depth_weight: false
+    depth_mu: 0.0
     weight_max: 10.0
-    ignore_zero_mask: true
-    eps: 1.0e-12
-  ordinal_opt:
-    type: MaskOrdinalBCELoss
-    loss_weight: 1.0
-    tau1_m: 0.1
-    tau2_m: 0.5
-    tau3_m: 1.0
-    tau_is_physical: true
-    var: 'h'
-    transform: asinh
-    h_asinh_q: 90
-    norm: zscore
-    stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8/split_stats_h_asinh_wet.json
-    use_pos_weight: true
-    pos_weight_min: 1.0
-    pos_weight_max: 10.0
-    focal_gamma: 0.0
-    alpha_pos: 0.75
-    w1: 1.0
-    w2: 1.0
-    w3: 1.0
     ignore_zero_mask: true
     eps: 1.0e-12
 

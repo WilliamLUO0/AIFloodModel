@@ -1,5 +1,11 @@
 # general settings
-name: 029_HeUNet_SRx8_inba_l1_bce
+# 029b: same as 029 but with GroupNorm instead of BatchNorm in HeResUnit.
+# Motivation: 029 with BN diverged at val time around iter 60k while train
+# loss kept going down -- classic BN running-stats poisoning under small
+# per-device batch (4) + interval_balanced sampler biased toward wet patches.
+# He 2023 used batch=128 on 60x60 patches, which keeps BN stats stable; our
+# 512x512 fine patches and batch=4 do not. GN is per-sample and immune.
+name: 029b_HeUNet_SRx8_inba_l1_bce
 model_type: FMSRModel
 scale: 8
 num_gpu: 4
@@ -99,7 +105,7 @@ network_g:
   num_flood_classes: 3
   interp_mode: bicubic
   final_relu: false
-  norm: bn
+  norm: gn
 
 # path
 path:

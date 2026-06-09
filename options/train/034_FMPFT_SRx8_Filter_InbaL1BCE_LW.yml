@@ -1,5 +1,5 @@
 # general settings
-name: 029_HeUNet_SRx8_inba_l1_bce
+name: 034_FMPFT_SRx8_Filter_InbaL1BCE_LW
 model_type: FMSRModel
 scale: 8
 num_gpu: 4
@@ -13,8 +13,8 @@ datasets:
   train:
     name: FloodMapSR-Train-h
     type: PairedFloodMapDataset
-    dataroot: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8
-    index_csv: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8/index_with_interval_stats_h.csv
+    dataroot: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full
+    index_csv: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/index_with_interval_stats_h.csv
     io_backend:
       type: disk
 
@@ -31,7 +31,7 @@ datasets:
       by: scenario
       val_ratio: 0.2
       seed: 61
-      split_stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8/split_stats_h_asinh_wet.json
+      split_stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/split_stats_h_asinh_wet.json
     stats:
       calculate_if_missing: false
       use_clip_coarse: false
@@ -42,10 +42,10 @@ datasets:
     sampler:
       type: interval_balanced
       score_mode: percentile_band
-      summary_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8/patch_interval_summary_h.json
+      summary_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/patch_interval_summary_h.json
       percentile_source: positive
       low_percentile: p75
-      high_percentile: p90
+      high_percentile: p99
       slight_alpha: 4.0
       severe_alpha: 2.0
       extreme_alpha: 2.0
@@ -63,8 +63,8 @@ datasets:
   val_1:
     name: FloodMapSR-Val-h
     type: PairedFloodMapDataset
-    dataroot: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8
-    index_csv: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8/index_with_interval_stats_h.csv
+    dataroot: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full
+    index_csv: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/index_with_interval_stats_h.csv
     io_backend:
       type: disk
 
@@ -79,7 +79,7 @@ datasets:
       by: scenario
       val_ratio: 0.2
       seed: 61
-      split_stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8/split_stats_h_asinh_wet.json
+      split_stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/split_stats_h_asinh_wet.json
     stats:
       calculate_if_missing: false
       use_clip_coarse: false
@@ -90,16 +90,31 @@ datasets:
 
 # network structures
 network_g:
-  type: HeUNetFloodSR
+  type: FloodMapPFTV6
   upscale: 8
   coarse_in_chans: 3
   static_in_chans: 7
-  base_ch: 64
-  out_chans: 1
-  num_flood_classes: 3
-  interp_mode: bicubic
-  final_relu: false
-  norm: bn
+  flood_map_size: 64
+  use_shallow_act: true
+  use_upsample_act: false
+  use_aoi_gate: true
+  aoi_alpha: 0.5
+  couple_mode: none
+  couple_eps: 0.2
+  embed_dim: 120
+  depths: [2, 4, 6, 6, 6]
+  num_heads: 6
+  num_topk: [ 1024, 1024,
+              256, 256, 256, 256,
+              128, 128, 128, 128, 128, 128,
+              64, 64, 64, 64, 64, 64,
+              32, 32, 32, 32, 32, 32,]
+  window_size: 32
+  convffn_kernel_size: 7
+  mlp_ratio: 2.
+  upsampler: 'pixelshuffle'
+  resi_connection: '1conv'
+  use_checkpoint: false
 
 # path
 path:
@@ -112,13 +127,13 @@ train:
   ema_decay: 0.999
   optim_g:
     type: AdamW
-    lr: !!float 2e-4
+    lr: !!float 5e-4
     weight_decay: 0
     betas: [0.9, 0.99]
 
   scheduler:
     type: MultiStepLR
-    milestones: [500000, 800000, 900000, 950000, 980000]
+    milestones: [150000, 300000, 500000, 700000, 900000]
     gamma: 0.5
 
   total_iter: 1000000
@@ -134,19 +149,19 @@ train:
     transform: asinh
     h_asinh_q: 90
     norm: zscore
-    stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8/split_stats_h_asinh_wet.json
+    stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/split_stats_h_asinh_wet.json
     use_wet_weight: true
     wet_lambda: 4.0
     use_depth_weight: true
-    depth_mu: 2.0
-    depth_mode: exp
+    depth_mu: 0.5
+    depth_mode: linear
     depth_scale: 1.0
-    weight_max: 10.0
+    weight_max: 15.0
     ignore_zero_mask: true
     eps: 1.0e-12
   ordinal_opt:
     type: MaskOrdinalBCELoss
-    loss_weight: 1.0
+    loss_weight: 10.0
     tau1_m: 0.1
     tau2_m: 0.5
     tau3_m: 1.0
@@ -155,12 +170,12 @@ train:
     transform: asinh
     h_asinh_q: 90
     norm: zscore
-    stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8/split_stats_h_asinh_wet.json
+    stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/split_stats_h_asinh_wet.json
     use_pos_weight: true
     pos_weight_min: 1.0
-    pos_weight_max: 10.0
-    focal_gamma: 0.0
-    alpha_pos: 0.75
+    pos_weight_max: 5.0
+    focal_gamma: 2.0
+    alpha_pos: 0.5
     w1: 1.0
     w2: 1.0
     w3: 1.0

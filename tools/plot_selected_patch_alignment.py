@@ -289,11 +289,11 @@ def plot_selected_patch(row, out_dir, threshold=0.1, max_shift=3):
     axes[0, 2].set_title("Fine_down - coarse")
     plt.colorbar(im2, ax=axes[0, 2], fraction=0.046)
 
-    axes[1, 0].imshow(np.where(mask, coarse_wet, np.nan))
-    axes[1, 0].set_title(f"Coarse wet >= {threshold} m")
+    axes[1, 0].imshow(np.where(mask, coarse_wet.astype(float), np.nan), vmin=0, vmax=1)
+    axes[1, 0].set_title(f"Coarse Flooded >= {threshold} m")
 
-    axes[1, 1].imshow(np.where(mask, fine_wet, np.nan))
-    axes[1, 1].set_title(f"Fine_down wet >= {threshold} m")
+    axes[1, 1].imshow(np.where(mask, fine_wet.astype(float), np.nan), vmin=0, vmax=1)
+    axes[1, 1].set_title(f"Fine_down Flooded >= {threshold} m")
 
     im5 = axes[1, 2].imshow(mismatch, vmin=0, vmax=3)
     axes[1, 2].set_title("Mismatch map\n1 both, 2 coarse only, 3 fine only")

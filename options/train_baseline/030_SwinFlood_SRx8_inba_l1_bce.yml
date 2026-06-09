@@ -1,5 +1,5 @@
 # general settings
-name: 029_HeUNet_SRx8_inba_l1_bce
+name: 030_SwinFlood_SRx8_inba_l1_bce
 model_type: FMSRModel
 scale: 8
 num_gpu: 4
@@ -90,16 +90,18 @@ datasets:
 
 # network structures
 network_g:
-  type: HeUNetFloodSR
+  type: SwinFlood
   upscale: 8
+  flood_map_size: 64
   coarse_in_chans: 3
   static_in_chans: 7
-  base_ch: 64
-  out_chans: 1
+  embed_dim: 128
+  depths: [6, 6, 6]
+  num_heads: 8
+  window_size: 8
+  mlp_ratio: 2.0
+  resi_connection: '1conv'
   num_flood_classes: 3
-  interp_mode: bicubic
-  final_relu: false
-  norm: bn
 
 # path
 path:
