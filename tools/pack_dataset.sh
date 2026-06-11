@@ -1,20 +1,20 @@
 #!/bin/bash
-#SBATCH --job-name=pack_ds8
+#SBATCH --job-name=pack_dataset_ds8_filtered_thr0p1_min5100_full
 #SBATCH --account=uoa04425
 #SBATCH --partition=milan
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=4
+#SBATCH --cpus-per-task=2
 #SBATCH --mem=16G
-#SBATCH --time=120:00:00
-#SBATCH --output=logs/%x_%j.out
-#SBATCH --error=logs/%x_%j.err
+#SBATCH --time=24:00:00
+#SBATCH --output=logs1/%x_%j.out
+#SBATCH --error=logs1/%x_%j.err
 
 set -euo pipefail
 
-SRC_DIR="/nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8"
-OUT_DIR="/nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/archive"
-ARCHIVE_NAME="dataset_ds8.tar.gz"
+SRC_DIR="/nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full"
+OUT_DIR="/nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/archive2"
+ARCHIVE_NAME="dataset_ds8_filtered_thr0p1_min5100_full.tar.gz"
 
 mkdir -p "$OUT_DIR" logs
 

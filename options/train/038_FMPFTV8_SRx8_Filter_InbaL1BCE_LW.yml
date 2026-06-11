@@ -1,5 +1,8 @@
 # general settings
-name: 036_FMPFT_SRx8_Filter_InbaL1BCE_LW
+# v8 = TG-PFT (FloodMapPFTV8): topography encoder + U-Net decoder + global residual.
+# ONLY network_g changes vs 036 (same filtered dataset, sampler, macro losses,
+# scheduler, val metrics), isolating the architecture as the single variable.
+name: 038_FMPFTV8_SRx8_Filter_InbaL1BCE_LW
 model_type: FMSRModel
 scale: 8
 num_gpu: 4
@@ -90,25 +93,25 @@ datasets:
 
 # network structures
 network_g:
-  type: FloodMapPFTV7
+  type: FloodMapPFTV8
   upscale: 8
   coarse_in_chans: 3
   static_in_chans: 7
   flood_map_size: 64
   use_shallow_act: true
-  use_upsample_act: true
+  use_decoder_act: true
+  use_global_residual: true
   use_aoi_gate: true
   aoi_alpha: 0.5
   couple_mode: none
   couple_eps: 0.2
-  embed_dim: 120
-  depths: [2, 4, 6, 6, 6]
+  embed_dim: 96
+  depths: [2, 4, 6, 6]
   num_heads: 6
   num_topk: [ 256, 256,
               128, 128, 128, 128,
               64, 64, 64, 64, 64, 64,
-              32, 32, 32, 32, 32, 32,
-              16, 16, 16, 16, 16, 16,]
+              32, 32, 32, 32, 32, 32,]
   window_size: 16
   convffn_kernel_size: 7
   mlp_ratio: 2.

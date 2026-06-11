@@ -1,5 +1,5 @@
 # general settings
-name: 036_FMPFT_SRx8_Filter_InbaL1BCE_LW
+name: 037_FMPFT_SRx8_Filter_InbaL1BCE_LW
 model_type: FMSRModel
 scale: 8
 num_gpu: 4
@@ -154,9 +154,9 @@ train:
     stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/split_stats_h_asinh.json
     weight_mode: manual
     w_nonflood: 1.0
-    w_slight: 1.0
-    w_severe: 1.0
-    w_extreme: 1.0
+    w_slight: 0.2
+    w_severe: 0.2
+    w_extreme: 0.2
     log_components: true
   ordinal_opt:
     type: MaskMacroOrdinalBCELoss
@@ -170,7 +170,7 @@ train:
     h_asinh_q: 90
     norm: zscore
     stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/split_stats_h_asinh.json
-    lambda_pos: 1.0
+    lambda_pos: 0.5
     w1: 1.0
     w2: 1.0
     w3: 1.0
