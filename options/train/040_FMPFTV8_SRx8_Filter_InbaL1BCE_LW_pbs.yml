@@ -1,9 +1,10 @@
 # general settings
-# 039 = v8 (TG-PFT) + PLAIN loss. Identical to 038 EXCEPT the losses
-# (MaskMacro* -> plain MaskWeightedL1Loss[unweighted] + MaskOrdinalBCELoss) and
-# val_freq (2e4 -> 4e4). This isolates the loss as the single variable vs 038,
-# mirroring the v7 macro(036)-vs-old(033) comparison on the new architecture.
-name: 039_FMPFTV8_SRx8_Filter_InbaL1BCE_LW
+# 040 = 039 (v8 + plain L1 + BCE 0.2) EXCEPT a small wet weighting on the L1:
+# use_wet_weight=true, wet_lambda=1.0 (vs 039's 0/off). 039 slightly UNDER-predicts
+# (pred_prev ~0.94x target, precision a touch above recall on extreme); wet_lambda=1
+# gently lowers the wet decision threshold (p>1/(1+2)=0.33 vs plain L1's 0.5) to nudge
+# recall up. Single-variable ablation vs 039 (wet_lambda 0 vs 1). depth weighting stays OFF.
+name: 040_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_pbs
 model_type: FMSRModel
 scale: 8
 num_gpu: 4
@@ -17,8 +18,8 @@ datasets:
   train:
     name: FloodMapSR-Train-h
     type: PairedFloodMapDataset
-    dataroot: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full
-    index_csv: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/index_with_interval_stats_h.csv
+    dataroot: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full
+    index_csv: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/index_with_interval_stats_h_niwa.csv
     io_backend:
       type: disk
 
@@ -35,7 +36,7 @@ datasets:
       by: scenario
       val_ratio: 0.2
       seed: 61
-      split_stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/split_stats_h_asinh.json
+      split_stats_json: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/split_stats_h_asinh.json
     stats:
       calculate_if_missing: false
       use_clip_coarse: false
@@ -46,7 +47,7 @@ datasets:
     sampler:
       type: interval_balanced
       score_mode: percentile_band
-      summary_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/patch_interval_summary_h.json
+      summary_json: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/patch_interval_summary_h.json
       percentile_source: positive
       low_percentile: p75
       high_percentile: p99
@@ -67,8 +68,8 @@ datasets:
   val_1:
     name: FloodMapSR-Val-h
     type: PairedFloodMapDataset
-    dataroot: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full
-    index_csv: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/index_with_interval_stats_h.csv
+    dataroot: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full
+    index_csv: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/index_with_interval_stats_h_niwa.csv
     io_backend:
       type: disk
 
@@ -83,7 +84,7 @@ datasets:
       by: scenario
       val_ratio: 0.2
       seed: 61
-      split_stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/split_stats_h_asinh.json
+      split_stats_json: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/split_stats_h_asinh.json
     stats:
       calculate_if_missing: false
       use_clip_coarse: false
@@ -153,9 +154,9 @@ train:
     transform: asinh
     h_asinh_q: 90
     norm: zscore
-    stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/split_stats_h_asinh.json
-    use_wet_weight: false
-    wet_lambda: 0.0
+    stats_json: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/split_stats_h_asinh.json
+    use_wet_weight: true
+    wet_lambda: 1.0
     use_depth_weight: false
     depth_mu: 0.0
     depth_mode: linear
@@ -174,7 +175,7 @@ train:
     transform: asinh
     h_asinh_q: 90
     norm: zscore
-    stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/split_stats_h_asinh.json
+    stats_json: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/split_stats_h_asinh.json
     use_pos_weight: true
     pos_weight_min: 1.0
     pos_weight_max: 10.0
