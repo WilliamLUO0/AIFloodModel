@@ -22,10 +22,11 @@
 #      roughness/mask) so the baseline is compared on the SAME data as TG-PFT/HeUNet/SwinFlood.
 #
 #   2. OUTPUT. Depth is produced by the paper's own final output conv (num_classes=1).
-#      For the matched-setup experiment (+ ordinal BCE) an OPTIONAL parallel
-#      `flood_head` = Conv2d(embed_dim, num_flood_classes, 1) is added on the same
-#      pre-output feature — identical pattern to swinflood_arch.py. `forward` returns
-#      (depth, flood_logit). The depth path is byte-for-byte the paper's.
+#      A parallel `flood_head` = Conv2d(embed_dim, num_flood_classes, 1) on the same
+#      pre-output feature — identical pattern to heunet_arch.py / swinflood_arch.py (always
+#      built, no flag). `forward` returns (depth, flood_logit). The depth path is byte-for-byte
+#      the paper's. When the ordinal-BCE loss is not configured, the flood head simply gets no
+#      gradient (find_unused_parameters handles it) and does not affect the depth branch.
 #
 #   3. The paper's `clamp(min=0)` + study-area "masking layer" are DISABLED by default
 #      because our targets are asinh+z-score normalized (0 m maps to a negative z-score,
@@ -927,7 +928,7 @@ class RSwinUNet(nn.Module):
                                                     aspect_cos/roughness/mask at 512x512)
     Outputs:
         depth:       [B, 1, Hf, Wf]
-        flood_logit: [B, num_flood_classes, Hf, Wf]  (None if use_flood_head=False)
+        flood_logit: [B, num_flood_classes, Hf, Wf]  (trained only if ordinal-BCE loss is set)
 
     The coarse input is upsampled x`upscale` to the fine grid and concatenated with the
     fine static features along the channel dim, then fed to the (verbatim) RSwinUNet body.
@@ -954,7 +955,6 @@ class RSwinUNet(nn.Module):
         patch_norm=True,
         use_checkpoint=False,
         num_flood_classes=3,
-        use_flood_head=True,
         coarse_upsample_mode='bilinear',
         clamp_min=None,
         use_output_mask=False,
@@ -968,7 +968,6 @@ class RSwinUNet(nn.Module):
         self.static_in_chans = int(static_in_chans)
         self.embed_dim = int(embed_dim)
         self.num_flood_classes = int(num_flood_classes)
-        self.use_flood_head = bool(use_flood_head)
         self.coarse_upsample_mode = str(coarse_upsample_mode)
         self.clamp_min = clamp_min
         self.use_output_mask = bool(use_output_mask)
@@ -996,11 +995,9 @@ class RSwinUNet(nn.Module):
             final_upsample="expand_first",
         )
 
-        if self.use_flood_head:
-            # Parallel flood head on the same pre-output feature (identical to swinflood_arch).
-            self.flood_head = nn.Conv2d(embed_dim, self.num_flood_classes, kernel_size=1, stride=1, padding=0)
-        else:
-            self.flood_head = None
+        # Parallel flood head on the same pre-output feature (identical to swinflood_arch).
+        # Always built; trained only when an ordinal-BCE loss is configured in the yml.
+        self.flood_head = nn.Conv2d(embed_dim, self.num_flood_classes, kernel_size=1, stride=1, padding=0)
 
     def forward(self, coarse_fm, static_f):
         Hf, Wf = static_f.shape[-2], static_f.shape[-1]
@@ -1025,7 +1022,7 @@ class RSwinUNet(nn.Module):
         x = torch.cat([coarse_up, static_f], dim=1)
 
         depth, feat = self.body(x)
-        flood_logit = self.flood_head(feat) if (self.flood_head is not None) else None
+        flood_logit = self.flood_head(feat)
 
         # Paper's clamp(min=0) + masking layer: OFF by default (asinh+zscore space). Optional.
         if self.clamp_min is not None:
