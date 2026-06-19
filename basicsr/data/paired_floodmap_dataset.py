@@ -130,8 +130,12 @@ class PairedFloodMapDataset(data.Dataset):
             -> channel order: [h, zs, dem]
 
     - fine_static_feature:
-        [7, Hf, Hf]
-        channel order: [elevation, roughness, slope, twi, aspect_sin, aspect_cos, mask]
+        [len(static_vars), Hf, Hf]
+        Selected via opt['static_vars'] (default = all 7, backward compatible).
+        Canonical channel order:
+            [dem, roughness, slope, twi, aspect_sin, aspect_cos, mask]
+        'mask' is ALWAYS included and ALWAYS the last channel (fmsr_model reads
+        the mask as static_f[:, -1:], and fmpftv8's AOI gate does too).
 
     - fine_flood_map:
         [1, Hf, Hf]
@@ -159,6 +163,14 @@ class PairedFloodMapDataset(data.Dataset):
                 f"[ERROR] aux_vars={self.aux_vars} is currently only supported when target_var == 'h'. "
                 f"Got target_var={self.target_var}"
             )
+
+        # Fine-grid static-feature selection (input ablation). If `static_vars`
+        # is omitted, ALL 7 canonical features are used (backward compatible with
+        # existing ymls). Channels are emitted in CANONICAL order regardless of
+        # the order written in yml, and 'mask' is forced present + last, so
+        # train/val/test always agree and the model's static_f[:, -1:] mask read
+        # stays valid. Remember to set network_g.static_in_chans = len(static_vars).
+        self.static_vars = self._parse_static_vars(opt.get('static_vars', None))
 
         self.scale = int(opt.get('scale', 16))
         self.patch_fine = int(opt.get('patch_fine', 1024))
@@ -228,6 +240,16 @@ class PairedFloodMapDataset(data.Dataset):
         check_required_fields(self.rows)
         self._check_required_fields_for_aux(self.rows)
 
+        coarse_channels_log = [f'{self.target_var}(coarse_flood_map)'] + list(self.aux_vars)
+        get_root_logger().info(
+            f'[PairedFloodMapDataset] phase={self.phase} INPUTS:\n'
+            f'  - coarse_flood_map ({1 + len(self.aux_vars)} ch -> set network_g.coarse_in_chans='
+            f'{1 + len(self.aux_vars)}): {coarse_channels_log}\n'
+            f'  - fine_static_feature ({len(self.static_vars)} ch -> set network_g.static_in_chans='
+            f'{len(self.static_vars)}, mask is last): {self.static_vars}\n'
+            f'  - target: fine_flood_map({self.target_var})'
+        )
+
     def _parse_aux_vars(self, aux_raw):
         if aux_raw is None:
             return []
@@ -242,6 +264,55 @@ class PairedFloodMapDataset(data.Dataset):
             return [str(x).strip() for x in aux_raw if str(x).strip() != '']
 
         raise TypeError(f'[ERROR] aux_vars must be str/list/tuple/set, got {type(aux_raw)}')
+
+    def _parse_static_vars(self, raw):
+        """Parse + validate the fine-grid static-feature selection.
+
+        Returns the selected feature names in CANONICAL order, with 'mask'
+        guaranteed present and last. Default (raw is None / empty) = all 7
+        canonical features. 'aspect_sin'/'aspect_cos' must be selected together
+        (they are the sin/cos encoding of a single physical quantity).
+        """
+        canon = ['dem', 'roughness', 'slope', 'twi', 'aspect_sin', 'aspect_cos', 'mask']
+        alias = {'elevation': 'dem', 'rough': 'roughness'}
+
+        if raw is None:
+            return list(canon)
+
+        if isinstance(raw, str):
+            s = raw.strip()
+            if s == '':
+                return list(canon)
+            items = [x.strip() for x in s.split(',') if x.strip() != '']
+        elif isinstance(raw, (list, tuple, set)):
+            items = [str(x).strip() for x in raw if str(x).strip() != '']
+        else:
+            raise TypeError(f'[ERROR] static_vars must be str/list/tuple/set, got {type(raw)}')
+
+        if len(items) == 0:
+            return list(canon)
+
+        items = [alias.get(x, x) for x in items]
+
+        allowed = set(canon)
+        unknown = [x for x in items if x not in allowed]
+        if len(unknown) > 0:
+            raise ValueError(
+                f'[ERROR] Unsupported static_vars: {unknown}, allowed: {canon} (aliases: {alias}).'
+            )
+
+        if len(set(items)) != len(items):
+            raise ValueError(f'[ERROR] static_vars contains duplicates: {items}')
+
+        if ('aspect_sin' in items) != ('aspect_cos' in items):
+            raise ValueError(
+                "[ERROR] aspect_sin and aspect_cos must be selected together or both omitted "
+                "(they are the sin/cos encoding of one physical quantity)."
+            )
+
+        # Emit in canonical order; force 'mask' present and last.
+        terrain = [c for c in canon if c != 'mask' and c in items]
+        return terrain + ['mask']
 
     def _check_required_fields_for_aux(self, rows):
         if len(rows) == 0:
@@ -760,7 +831,21 @@ class PairedFloodMapDataset(data.Dataset):
         a_cos = acos
         mask = mask_fine
 
-        fine_static_feature = np.stack([e, rgh, slp, tf, a_sin, a_cos, mask], axis=0).astype(np.float32)
+        # Select the configured fine static features (canonical order, mask last;
+        # see _parse_static_vars). Unused channels are still loaded + augmented
+        # above (keeps augmentation indices fixed) but dropped from the stack here.
+        static_channel_map = {
+            'dem': e,
+            'roughness': rgh,
+            'slope': slp,
+            'twi': tf,
+            'aspect_sin': a_sin,
+            'aspect_cos': a_cos,
+            'mask': mask,
+        }
+        fine_static_feature = np.stack(
+            [static_channel_map[name] for name in self.static_vars], axis=0
+        ).astype(np.float32)
 
         # -----------------------------
         # normalize aux vars and keep order:
@@ -814,6 +899,7 @@ class PairedFloodMapDataset(data.Dataset):
                 'col': int(r['patch_col']),
                 'var': self.target_var,
                 'aux_vars': list(self.aux_vars),
+                'static_vars': list(self.static_vars),
                 'coarse_path': r['coarse_path'],
                 'fine_path': r['fine_path'],
             }
