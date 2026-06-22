@@ -31,6 +31,7 @@ def get_extensions():
             "-gencode", "arch=compute_80,code=sm_80",  # For CUDA 11.7 and above
             "-gencode", "arch=compute_86,code=sm_86",
             "-gencode", "arch=compute_89,code=sm_89", # Comment this if CUDA version is too low
+            "-gencode", "arch=compute_90,code=sm_90",
             "-lineinfo",  # Output detailed debug information
         ]
     else:
