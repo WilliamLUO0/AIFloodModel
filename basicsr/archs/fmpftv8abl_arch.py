@@ -1,7 +1,7 @@
 """
 FloodMapPFTV8Abl — single-axis architecture ablations of FloodMapPFTV8 (TG-PFT).
 
-Two independent flags, each isolating one architectural pillar. Defaults reproduce
+Three independent flags, each isolating one architectural pillar. Defaults reproduce
 V8 exactly, so flipping ONE flag is a clean single-axis ablation:
 
   * use_ushape_skips (default True):
@@ -9,6 +9,11 @@ V8 exactly, so flipping ONE flag is a clean single-axis ablation:
         topography skips). The static encoder still collapses to the bottleneck, so
         this reverts to the pre-U-shape design: shallow static fusion + PFT deep
         extraction + upsampling (cf. the original PFT / V7).  -> the "U-shape" pillar.
+
+  * use_decoder_fuse (default True):
+      False -> removes the DecoderFuseBlock after each DecoderUp stage. The decoder
+      is reduced to plain Conv + PixelShuffle upsampling at each scale. This isolates
+      the contribution of the per-scale decoder refinement blocks.
 
   * bottleneck_type (default 'pft'):
         'conv' -> the bottleneck PFT attention layers are replaced by a residual
@@ -56,17 +61,19 @@ class FloodMapPFTV8Abl(FloodMapPFTV8):
 
     Extra args (everything else identical to FloodMapPFTV8):
         use_ushape_skips (bool): False removes the multi-scale topography skips.
+        use_decoder_fuse (bool): False removes the DecoderFuseBlock.
         bottleneck_type (str): 'pft' (default) | 'conv'. 'conv' replaces the PFT
             attention bottleneck with a residual conv stack.
         conv_bottleneck_blocks (int): number of ConvResBlocks when bottleneck_type
             == 'conv' (tune to match the PFT bottleneck's param count).
     """
 
-    def __init__(self, *args, use_ushape_skips=True, bottleneck_type='pft',
-                 conv_bottleneck_blocks=8, **kwargs):
+    def __init__(self, *args, use_ushape_skips=True, use_decoder_fuse=True,
+                 bottleneck_type='pft', conv_bottleneck_blocks=8, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.use_ushape_skips = bool(use_ushape_skips)
+        self.use_decoder_fuse = bool(use_decoder_fuse)
         self.bottleneck_type = str(bottleneck_type).lower().strip()
         assert self.bottleneck_type in ('pft', 'conv'), \
             f"bottleneck_type must be 'pft' or 'conv', got {self.bottleneck_type}"
@@ -76,7 +83,11 @@ class FloodMapPFTV8Abl(FloodMapPFTV8):
         use_act = self.use_decoder_act
 
         # --- pillar 1: no U-shape skips -> decoder fuses only the upsampled feat ---
-        if not self.use_ushape_skips:
+        if not self.use_decoder_fuse:
+            if hasattr(self, 'dec_fuse'):
+                delattr(self, 'dec_fuse')
+
+        elif not self.use_ushape_skips:
             self.dec_fuse = nn.ModuleList([
                 DecoderFuseBlock(num_feat, num_feat, use_act=use_act)
                 for _ in range(self.n_stages)
@@ -164,11 +175,14 @@ class FloodMapPFTV8Abl(FloodMapPFTV8):
         skips_dec = list(reversed(enc_skips))
         for i in range(self.n_stages):
             d_up = self.dec_ups[i](d)
-            if self.use_ushape_skips:
-                fused = self.dec_fuse[i](torch.cat([d_up, skips_dec[i]], dim=1))
+            if self.use_decoder_fuse:
+                if self.use_ushape_skips:
+                    fused = self.dec_fuse[i](torch.cat([d_up, skips_dec[i]], dim=1))
+                else:
+                    fused = self.dec_fuse[i](d_up)
+                d = fused + d_up
             else:
-                fused = self.dec_fuse[i](d_up)
-            d = fused + d_up
+                d = d_up
 
         depth = self.conv_last(d)
         flood_logit = self.flood_head(d)
