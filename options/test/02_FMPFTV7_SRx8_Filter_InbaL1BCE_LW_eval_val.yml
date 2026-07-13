@@ -1,76 +1,26 @@
+# Evaluation config — 02_FMPFTV7_SRx8_Filter_InbaL1BCE_LW evaluated on the held-out validation split.
+# Ablation study (val-set only): run this model on val, save predicted flood
+# maps, then aggregate GLOBAL metrics with tools/eval_flood.py (patch-mean
+# metrics from training are not comparable across full scenes). Inputs use
+# train-set normalization stats; EMA weights loaded (params_ema).
+# network_g: FloodMapPFTV7
+
 # general settings
-# 05 ARCHITECTURE ablation of the main method (= 039 / 01_FMPFTV8). Everything
-# held identical to 01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW EXCEPT network_g (the
-# single architectural axis below). Shared ~600k iter (stop by hand); total_iter
-# kept 1M. Eval = global per-cell. Train from scratch (state_dict != V8).
-# no-Ushape pillar + no-DecoderFuse pillar;
-# reverts to shallow-static-fusion + PFT extraction + upsampling (cf. original PFT/V7).
-name: 05_FMPFTV8Abl_noUshapeDFuse_SRx8_Filter_InbaL1BCE_LW_pbs
+name: 02_FMPFTV7_SRx8_Filter_InbaL1BCE_LW_eval_val
 model_type: FMSRModel
 scale: 8
-num_gpu: 4
+num_gpu: 1
 manual_seed: 61
 
 # find_unused_parameters needs to be true, otherwise it will affect performance
-find_unused_parameters: true
 
 # dataset and data loader lsettings
 datasets:
-  train:
-    name: FloodMapSR-Train-h
-    type: PairedFloodMapDataset
-    dataroot: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full
-    index_csv: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/index_with_interval_stats_h_niwa.csv
-    io_backend:
-      type: disk
-
-    phase: train
-    target_var: h
-    aux_vars: [zs, dem]
-    scale: 8
-    patch_fine: 512
-    patch_coarse: 64
-    use_hflip: true
-    use_rot: true
-
-    split_cfg:
-      by: scenario
-      val_ratio: 0.2
-      seed: 61
-      split_stats_json: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/split_stats_h_asinh.json
-    stats:
-      calculate_if_missing: false
-      use_clip_coarse: false
-      use_clip_static: false
-      norm: zscore
-      transform: asinh
-      h_asinh_q: 90
-    sampler:
-      type: interval_balanced
-      score_mode: percentile_band
-      summary_json: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/patch_interval_summary_h.json
-      percentile_source: positive
-      low_percentile: p75
-      high_percentile: p99
-      slight_alpha: 4.0
-      severe_alpha: 2.0
-      extreme_alpha: 2.0
-      base_weight: 1.0
-      max_weight: 10.0
-
-    # data loader
-    num_worker_per_gpu: 8
-    batch_size_per_gpu: 4
-    dataset_enlarge_ratio: 1
-    prefetch_mode: cuda
-    pin_memory: True
-    persistent_workers: True
-
   val_1:
     name: FloodMapSR-Val-h
     type: PairedFloodMapDataset
-    dataroot: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full
-    index_csv: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/index_with_interval_stats_h_niwa.csv
+    dataroot: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full
+    index_csv: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/index_with_interval_stats_h.csv
     io_backend:
       type: disk
 
@@ -85,7 +35,7 @@ datasets:
       by: scenario
       val_ratio: 0.2
       seed: 61
-      split_stats_json: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/split_stats_h_asinh.json
+      split_stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/split_stats_h_asinh.json
     stats:
       calculate_if_missing: false
       use_clip_coarse: false
@@ -96,16 +46,13 @@ datasets:
 
 # network structures
 network_g:
-  type: FloodMapPFTV8Abl
-  use_ushape_skips: false
-  use_decoder_fuse: false
+  type: FloodMapPFTV7
   upscale: 8
   coarse_in_chans: 3
   static_in_chans: 7
   flood_map_size: 64
   use_shallow_act: true
-  use_decoder_act: true
-  use_global_residual: true
+  use_upsample_act: true
   use_aoi_gate: true
   aoi_alpha: 0.5
   couple_mode: none
@@ -126,74 +73,15 @@ network_g:
 
 # path
 path:
-  pretrain_network_g: ~
-  strict_load_g: true
-  resume_state: ~
-
-# training settings
-train:
-  ema_decay: 0.999
-  optim_g:
-    type: AdamW
-    lr: !!float 5e-4
-    weight_decay: 0
-    betas: [0.9, 0.99]
-
-  scheduler:
-    type: MultiStepLR
-    milestones: [150000, 300000, 500000, 700000, 900000]
-    gamma: 0.5
-
-  total_iter: 1000000
-  warmup_iter: 40000
-
-  # losses
-  pixel_opt:
-    type: MaskWeightedL1Loss
-    loss_weight: 1.0
-    tau_flood_m: 0.1
-    tau_is_physical: true
-    var: 'h'
-    transform: asinh
-    h_asinh_q: 90
-    norm: zscore
-    stats_json: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/split_stats_h_asinh.json
-    use_wet_weight: false
-    wet_lambda: 0.0
-    use_depth_weight: false
-    depth_mu: 0.0
-    depth_mode: linear
-    depth_scale: 1.0
-    weight_max: 10.0
-    ignore_zero_mask: true
-    eps: 1.0e-12
-  ordinal_opt:
-    type: MaskOrdinalBCELoss
-    loss_weight: 0.2
-    tau1_m: 0.1
-    tau2_m: 0.5
-    tau3_m: 1.0
-    tau_is_physical: true
-    var: 'h'
-    transform: asinh
-    h_asinh_q: 90
-    norm: zscore
-    stats_json: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/split_stats_h_asinh.json
-    use_pos_weight: true
-    pos_weight_min: 1.0
-    pos_weight_max: 10.0
-    focal_gamma: 0.0
-    alpha_pos: 0.75
-    w1: 1.0
-    w2: 1.0
-    w3: 1.0
-    ignore_zero_mask: true
-    eps: 1.0e-12
+  pretrain_network_g: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/experiments/02_FMPFTV7_SRx8_Filter_InbaL1BCE_LW/models/net_g_600000.pth
+  strict_load_g: yes
+  # load EMA weights into net_g so eval matches training-val numbers.
+  param_key_g: params_ema
 
 # validation settings
 val:
-  val_freq: !!float 4e4
-  save_flood_map: false
+  save_flood_map: true
+  suffix: ~
 
   metrics:
     rmse:
@@ -567,17 +455,3 @@ val:
       reduction: mean
       empty_as_nan: true
       better: higher
-
-# logging settings
-logger:
-  print_freq: 100
-  save_checkpoint_freq: !!float 5e3
-  use_tb_logger: true
-  wandb:
-    project: ~
-    resume_id: ~
-
-# dist training settings
-dist_params:
-  backend: nccl
-  port: 29500

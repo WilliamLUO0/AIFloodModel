@@ -2,7 +2,7 @@
 #PBS -q a100q
 #PBS -l select=1:ncpus=12:ngpus=4:mem=60GB:nodepool=a100p
 #PBS -l walltime=24:00:00
-#PBS -N abl_05_FMPFTV8Abl_noUshapeDFuse_SRx8_Filter_InbaL1BCE_LW
+#PBS -N abl_05_FMPFTV8Abl_noUshapeDFuse_SRx8_Filter_InbaL1BCE_LW_pbs
 #PBS -S /bin/bash
 #PBS -o /esi/project/niwa04345/luoz/AIFloodModel/logs/
 #PBS -e /esi/project/niwa04345/luoz/AIFloodModel/logs/

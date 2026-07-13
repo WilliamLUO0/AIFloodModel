@@ -3,7 +3,7 @@
 # held identical to 01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW EXCEPT network_g (the
 # single architectural axis below). Shared ~600k iter (stop by hand); total_iter
 # kept 1M. Eval = global per-cell. Train from scratch (state_dict != V8).
-# no-Ushape pillar + no-DecderFuse pillar;
+# no-Ushape pillar + no-DecoderFuse pillar;
 # reverts to shallow-static-fusion + PFT extraction + upsampling (cf. original PFT/V7).
 name: 05_FMPFTV8Abl_noUshapeDFuse_SRx8_Filter_InbaL1BCE_LW
 model_type: FMSRModel
