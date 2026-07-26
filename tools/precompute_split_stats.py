@@ -696,6 +696,10 @@ def main():
     ap.add_argument('--by', default='scenario', choices=['scenario', 'all'])
     ap.add_argument('--val_ratio', type=float, default=0.2)
     ap.add_argument('--seed', type=int, default=61)
+    ap.add_argument('--reuse_split_from', type=str, default='',
+                    help='Path to an existing split_stats_*.json (e.g. the h one). Its train/val '
+                         'split is adopted by patch identity (scenario,t,patch_row,patch_col), so '
+                         'u/v train/val on the SAME physical patches as h. Requires the same index_csv.')
     ap.add_argument('--bins', type=int, default=8192)
 
     # h only
@@ -753,7 +757,43 @@ def main():
                 r[k] = _maybe_join(r[k])
 
     # split
-    if os.path.isfile(args.out_json):
+    def _patch_identity(r):
+        return (str(r['scenario']), str(r['t']), str(r['patch_row']), str(r['patch_col']))
+
+    if args.reuse_split_from:
+        # Adopt an existing split (e.g. h's) by patch identity so u/v use the SAME
+        # physical patches. Row ids differ across vars, so we map via (scenario,t,row,col).
+        if not os.path.isfile(args.reuse_split_from):
+            raise FileNotFoundError(f'[ERROR] --reuse_split_from not found: {args.reuse_split_from}')
+        with open(args.reuse_split_from, 'r') as f:
+            ref_meta = json.load(f)
+        if 'split' not in ref_meta:
+            raise RuntimeError(f'[ERROR] --reuse_split_from missing "split": {args.reuse_split_from}')
+
+        id2pid = {int(r['_row_id']): _patch_identity(r) for r in rows_all}
+        ref_train_pids = {id2pid[i] for i in (int(x) for x in ref_meta['split']['train']) if i in id2pid}
+        ref_val_pids = {id2pid[i] for i in (int(x) for x in ref_meta['split'].get('val', [])) if i in id2pid}
+
+        train_ids = set(int(r['_row_id']) for r in rows if _patch_identity(r) in ref_train_pids)
+        val_ids = set(int(r['_row_id']) for r in rows if _patch_identity(r) in ref_val_pids)
+
+        unassigned = [int(r['_row_id']) for r in rows
+                      if _patch_identity(r) not in ref_train_pids
+                      and _patch_identity(r) not in ref_val_pids]
+        if unassigned:
+            raise RuntimeError(
+                f'[ERROR] {len(unassigned)} {args.target_var}-patches have no matching patch identity '
+                f'in --reuse_split_from. Are index_csv / filtering consistent with the reference?'
+            )
+
+        meta = {
+            "seed": args.seed,
+            "val_ratio": args.val_ratio,
+            "split_by": args.by,
+            "split": {"train": sorted(list(train_ids)), "val": sorted(list(val_ids))},
+            "split_reused_from": os.path.abspath(args.reuse_split_from),
+        }
+    elif os.path.isfile(args.out_json):
         with open(args.out_json, 'r') as f:
             meta = json.load(f)
         if 'split' not in meta:

@@ -13,8 +13,8 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=32G
 #SBATCH --time=6:00:00
-#SBATCH --output=logs1/%x_%j.out
-#SBATCH --error=logs1/%x_%j.err
+#SBATCH --output=logs/%x_%j.out
+#SBATCH --error=logs/%x_%j.err
 
 set -euo pipefail
 
@@ -39,22 +39,22 @@ TEST_INDEX=index.csv                         # test-dataset index
 # ===================== EDIT HERE: which experiments =====================
 # Main model -> evaluated on val + the three designed 42h test scenarios + Gabrielle.
 MAIN_EXPERIMENTS=(
-  01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW
+
 )
 
 # Ablations / baselines -> evaluated on the VAL set only. Add or remove lines freely.
 VAL_ONLY_EXPERIMENTS=(
-  02_HeUNet_SRx8_Filter_InbaL1BCE_LW
-  02_SwinFlood_SRx8_Filter_InbaL1BCE_LW
+  02_RSwinUNet_SRx8_Filter_InbaL1
   02_RSwinUNet_SRx8_Filter_InbaL1BCE_LW
-  03_FMPFTV8_Abl_static_noDEM_SRx8_Filter_InbaL1BCE_LW
-  04_FMPFTV8_Abl_noAoiGate_SRx8_Filter_InbaL1BCE_LW
-  05_FMPFTV8Abl_noUshapeDFuse_SRx8_Filter_InbaL1BCE_LW
+  03_FMPFTV8_Abl_coarse_demOnly_SRx8_Filter_InbaL1BCE_LW
+  03_FMPFTV8_Abl_coarse_zsOnly_SRx8_Filter_InbaL1BCE_LW
+  03_FMPFTV8_Abl_static_demOnly_SRx8_Filter_InbaL1BCE_LW
+  03_FMPFTV8_Abl_static_noAspect_SRx8_Filter_InbaL1BCE_LW
 )
 
 # Compute the coarse-upsample baseline too? It is MODEL-INDEPENDENT (just bicubic
 # upsampling of the coarse map), so it is computed ONCE per dataset, not per model.
-RUN_BASELINE=1
+RUN_BASELINE=0
 # =======================================================================
 
 FILTERED_DS=dataset_ds8_filtered_thr0p1_min5100_full

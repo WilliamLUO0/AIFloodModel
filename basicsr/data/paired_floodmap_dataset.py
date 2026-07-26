@@ -158,10 +158,14 @@ class PairedFloodMapDataset(data.Dataset):
         if len(unknown_aux) > 0:
             raise ValueError(f'[ERROR] Unsupported aux_vars: {unknown_aux}, allowed: {sorted(list(allowed_aux))}')
 
-        if self.target_var != 'h' and len(self.aux_vars) > 0:
+        # For velocity (u/v), water-surface elevation (zs) is forbidden because it
+        # leaks water-depth information (zs = dem + h). Coarse DEM is fine (static
+        # terrain, depth-free), so u/v may use aux_vars=[dem] only.
+        if self.target_var in ('u', 'v') and 'zs' in self.aux_vars:
             raise ValueError(
-                f"[ERROR] aux_vars={self.aux_vars} is currently only supported when target_var == 'h'. "
-                f"Got target_var={self.target_var}"
+                f"[ERROR] aux var 'zs' is not allowed for target_var={self.target_var} "
+                f"(it leaks water-depth information). Only 'dem' is allowed as a coarse "
+                f"aux for u/v. Got aux_vars={self.aux_vars}"
             )
 
         # Fine-grid static-feature selection (input ablation). If `static_vars`
@@ -686,15 +690,17 @@ class PairedFloodMapDataset(data.Dataset):
         # load optional coarse auxiliary variables
         # keep loading in the same order as self.aux_vars
         # -----------------------------
+        # Load coarse aux channels for whatever aux_vars are configured. The __init__
+        # validation guarantees u/v can only carry 'dem' (never 'zs'), so this is safe
+        # for all target_vars.
         aux_loaded = {}
-        if self.target_var == 'h':
-            for aux_name in self.aux_vars:
-                if aux_name == 'zs':
-                    aux_loaded['zs'] = load_npy_shape(r['zs_coarse_path'], expect_shape=(Hc, Hc))
-                elif aux_name == 'dem':
-                    aux_loaded['dem'] = load_npy_shape(r['elev_coarse_path'], expect_shape=(Hc, Hc))
-                else:
-                    raise ValueError(f'[ERROR] Unsupported aux var: {aux_name}')
+        for aux_name in self.aux_vars:
+            if aux_name == 'zs':
+                aux_loaded['zs'] = load_npy_shape(r['zs_coarse_path'], expect_shape=(Hc, Hc))
+            elif aux_name == 'dem':
+                aux_loaded['dem'] = load_npy_shape(r['elev_coarse_path'], expect_shape=(Hc, Hc))
+            else:
+                raise ValueError(f'[ERROR] Unsupported aux var: {aux_name}')
 
         # -----------------------------
         # build transform list

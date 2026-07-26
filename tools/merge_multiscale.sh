@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=merge_interp_dataset_ds8_engine5
+#SBATCH --job-name=merge_adaptation_testdataset_gabrielle
 #SBATCH --account=uoa04425
 #SBATCH --partition=milan,genoa
 #SBATCH --nodes=1
@@ -23,16 +23,23 @@ export MKL_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 export NUMEXPR_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 export PYTHONUNBUFFERED=1
 
-python ./merge_multiscale.py \
-  --fine-dir "/nesi/nobackup/uoa04425/zluo784/Exp2/Gisborne_basin/results/1000y_48h_0c/dx8" \
-  --input-nc "BGout.nc" \
-  --coarse-nc "/nesi/nobackup/uoa04425/zluo784/Exp2/Gisborne_basin/results/1000y_48h_0c/dx64/BGout.nc" \
-  --out-perdir "per_timestep_merged" \
-  --vars zs u v h
+#python tools/merge_multiscale.py \
+#  --fine-dir "/nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/results/2y_42h_0c/dx8" \
+#  --input-nc "BGout.nc" \
+#  --coarse-nc "/nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/results/2y_42h_0c/dx64/BGout.nc" \
+#  --out-perdir "per_timestep_merged" \
+#  --vars zs u v h
+#
+#python tools/merge_multiscale.py \
+#  --fine-dir "/nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/results/1000y_42h_0c/dx8" \
+#  --input-nc "BGout.nc" \
+#  --coarse-nc "/nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/results/1000y_42h_0c/dx64/BGout.nc" \
+#  --out-perdir "per_timestep_merged" \
+#  --vars zs u v h
 
-python ./merge_multiscale.py \
-  --fine-dir "/nesi/nobackup/uoa04425/zluo784/Exp2/Gisborne_basin/results/100y_48h_0c/dx8" \
+python tools/merge_multiscale.py \
+  --fine-dir "/nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/results/gabrielle/dx8" \
   --input-nc "BGout.nc" \
-  --coarse-nc "/nesi/nobackup/uoa04425/zluo784/Exp2/Gisborne_basin/results/100y_48h_0c/dx64/BGout.nc" \
+  --coarse-nc "/nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/results/gabrielle/dx64/BGout.nc" \
   --out-perdir "per_timestep_merged" \
   --vars zs u v h

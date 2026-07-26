@@ -1,12 +1,12 @@
 #!/bin/bash
-#SBATCH --job-name=make_patches_dataset_ds8_filtered_thr0p1_min5100_full
+#SBATCH --job-name=make_patches_testset_2y42h0c
 #SBATCH --account=uoa04425
 #SBATCH --partition=milan,genoa
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=20G
-#SBATCH --time=24:00:00
+#SBATCH --time=4:00:00
 #SBATCH --output=logs/%x_%j.out
 #SBATCH --error=logs/%x_%j.err
 
@@ -27,9 +27,9 @@ export PYTHONUNBUFFERED=1
 export GDAL_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 export RASTERIO_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 
-python make_patches.py \
+python tools/make_patches.py \
   --var h u v \
-  --scenarios 2y_6h_0c 2y_48h_0c 5y_6h_0c 5y_48h_0c 10y_6h_0c 10y_48h_0c 20y_6h_0c 20y_48h_0c 50y_6h_0c 50y_48h_0c 100y_6h_0c 100y_48h_0c 200y_6h_0c 200y_48h_0c 500y_6h_0c 500y_48h_0c 1000y_6h_0c 1000y_48h_0c \
+  --scenarios 2y_42h_0c \
   --fine-template  "/nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/results/{scenario}/dx8/per_timestep_merged_filtered_thr0p1_min100" \
   --coarse-template "/nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/results/{scenario}/dx64/BGout_filtered_thr0p1_min5.nc" \
   --file-elev  /nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/input_files/Elevation.nc \
@@ -40,6 +40,6 @@ python make_patches.py \
   --file-aspect-cos  /nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/input_files/Topo_Attrs/Aspect_COS.nc \
   --aoi  /nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/input_files/Gisborne_basin.shp \
   --scale 8 --patch-coarse 64 \
-  --filter-enable --filter-thresh 0.2 \
-  --out-dir /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full \
+  --filter-enable --filter-thresh 0.000001 \
+  --out-dir /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/testdataset_2y42h0c \
   --depth-eps 5e-5 --vel-eps 1e-5

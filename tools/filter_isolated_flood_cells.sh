@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=filter_isolated_flood_cells_filtered_thr0p1
+#SBATCH --job-name=filter_isolated_flood_cells_filtered_thr0p1_gabrielle
 #SBATCH --account=uoa04425
 #SBATCH --partition=milan,genoa
 #SBATCH --nodes=1
@@ -7,8 +7,8 @@
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=16G
 #SBATCH --time=24:00:00
-#SBATCH --output=logs1/%x_%j.out
-#SBATCH --error=logs1/%x_%j.err
+#SBATCH --output=logs/%x_%j.out
+#SBATCH --error=logs/%x_%j.err
 
 set -euo pipefail
 
@@ -51,7 +51,10 @@ SCENARIOS=(
   # "5y_6h_0c"
   # "2y_48h_0c"
   # "2y_6h_0c"
-  "100y_42h_0c"
+  # "100y_42h_0c"
+  # "2y_42h_0c"
+  # "1000y_42h_0c"
+  "gabrielle"
 )
 
 for SCENARIO in "${SCENARIOS[@]}"; do

@@ -30,8 +30,8 @@ export RASTERIO_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 python make_patches.py \
   --var h u v \
   --scenarios 100y_42h_0c \
-  --dir-fine-template  "/nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/results/{scenario}/dx8/per_timestep_merged_filtered_thr0p1_min100" \
-  --file-coarse-template "/nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/results/{scenario}/dx64/BGout_filtered_thr0p1_min5.nc" \
+  --fine-template  "/nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/results/{scenario}/dx8/per_timestep_merged_filtered_thr0p1_min100" \
+  --coarse-template "/nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/results/{scenario}/dx64/BGout_filtered_thr0p1_min5.nc" \
   --file-elev  /nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/input_files/Elevation.nc \
   --file-rough  /nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/input_files/Roughness.nc \
   --file-slope  /nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/input_files/Topo_Attrs/Slope_Deg.nc \
@@ -42,5 +42,4 @@ python make_patches.py \
   --scale 8 --patch-coarse 64 \
   --filter-enable --filter-thresh 0.000001 \
   --out-dir /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/testdataset_100y42h0c \
-  --depth-eps 5e-5 --vel-eps 1e-5 \
-  --clip-max-depth -1 --clip-max-vel-u -1 --clip-max-vel-v -1
+  --depth-eps 5e-5 --vel-eps 1e-5

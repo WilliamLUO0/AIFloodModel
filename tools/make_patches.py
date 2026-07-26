@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-python make_patches.py --var h --dir-fine ./100y_42h_0c_dx8/per_timestep_merged --file-coarse ./100y_42h_0c_dx128/BGout.nc --file-elev ./Elevation.nc --file-rough ./Roughness.nc --file-slope ./Slope_Deg.nc --file-twi ./TWI.nc --file-aspect-sin ./Aspect_SIN.nc --file-aspect-cos ./Aspect_COS.nc --aoi ./Gisborne_basin.shp --scale 16 --patch-coarse 64 --filter-enable --filter-thresh 0.2 --out-dir ./dataset_patches
+python make_patches.py --var h --fine ./100y_42h_0c_dx8/per_timestep_merged --coarse ./100y_42h_0c_dx128/BGout.nc --file-elev ./Elevation.nc --file-rough ./Roughness.nc --file-slope ./Slope_Deg.nc --file-twi ./TWI.nc --file-aspect-sin ./Aspect_SIN.nc --file-aspect-cos ./Aspect_COS.nc --aoi ./Gisborne_basin.shp --scale 16 --patch-coarse 64 --filter-enable --filter-thresh 0.2 --out-dir ./dataset_patches
 
 python make_patches.py
   --var h u v
   --scenarios 100y_42h_0c 2y_6h_0c:3
-  --dir-fine-template "./{scenario}/dx8/per_timestep_merged"
-  --file-coarse-template "./{scenario}/dx128/BGout.nc"
+  --fine-template "./{scenario}/dx8/per_timestep_merged"
+  --coarse-template "./{scenario}/dx128/BGout.nc"
   --file-elev ./Elevation.nc
   --file-rough ./Roughness.nc
   --file-slope ./Slope_Deg.nc
@@ -22,8 +22,8 @@ python make_patches.py
 python make_patches.py \
   --var h u v \
   --scenarios 2y_6h_0c 2y_48h_0c 5y_6h_0c 5y_48h_0c 10y_6h_0c 10y_48h_0c 20y_6h_0c 20y_48h_0c 50y_6h_0c 50y_48h_0c 100y_6h_0c 100y_48h_0c 200y_6h_0c 200y_48h_0c 500y_6h_0c 500y_48h_0c 1000y_6h_0c 1000y_48h_0c \
-  --dir-fine-template  "/nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/results/{scenario}/dx8/per_timestep_merged" \
-  --file-coarse-template "/nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/results/{scenario}/dx128/BGout.nc" \
+  --fine-template  "/nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/results/{scenario}/dx8/per_timestep_merged" \
+  --coarse-template "/nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/results/{scenario}/dx128/BGout.nc" \
   --file-elev  /nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/input_files/Elevation.nc \
   --file-rough  /nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/input_files/Roughness.nc \
   --file-slope  /nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/input_files/Topo_Attrs/Slope_Deg.nc \
@@ -37,8 +37,8 @@ python make_patches.py \
 
 python make_patches.py \
   --var h \
-  --dir-fine /nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/results/100y_42h_0c/dx8/per_timestep_merged \
-  --file-coarse /nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/results/100y_42h_0c/dx128/BGout.nc \
+  --fine /nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/results/100y_42h_0c/dx8/per_timestep_merged \
+  --coarse /nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/results/100y_42h_0c/dx128/BGout.nc \
   --file-elev   /nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/input_files/Elevation.nc \
   --file-rough  /nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/input_files/Roughness.nc \
   --file-slope       /nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/input_files/Topo_Attrs/Slope_Deg.nc \
@@ -94,32 +94,135 @@ def _extract_t_from_filename(path):
     return f"t{m.group(1)}" if m else None
 
 
-def _load_fine(path, var):
-    ds = xr.open_dataset(path)
-    x = ds["xx"] if "xx" in ds else (ds["x"] if "x" in ds else None)
-    y = ds["yy"] if "yy" in ds else (ds["y"] if "y" in ds else None)
-    if x is None or y is None:
-        ds.close()
-        raise RuntimeError(f"{path} lacks xx/yy or x/y coordinates")
-    if var not in ds:
-        ds.close()
-        raise KeyError(f"{path} cannot find variable: {var}")
-    da = _mask_fill(ds[var]).assign_coords(xx=x, yy=y).load()
-    out = (da, x.values.astype(np.float64), y.values.astype(np.float64))
-    ds.close()
-    return out
+def _normalize_map(da, ds):
+    """
+    Rename a 2D map's spatial dims to canonical (yy, xx) and attach 1D coordinate
+    vectors. Handles both the fine convention (xx/yy or x/y) and the BG coarse
+    convention (xx_P0/yy_P0). Returns (da, x, y).
+    """
+    dim_pairs = [("yy_P0", "xx_P0"), ("yy", "xx"), ("y", "x")]
+    ydim = xdim = None
+    for yd, xd in dim_pairs:
+        if yd in da.dims and xd in da.dims:
+            ydim, xdim = yd, xd
+            break
+    if ydim is None:
+        raise RuntimeError(f"cannot identify spatial dims among {tuple(da.dims)}")
+
+    def _vec(dim):
+        for cand in (dim, dim.replace("_P0", "")):
+            if cand in ds:
+                return np.asarray(ds[cand].values, dtype=np.float64)
+        if dim in da.coords:
+            return np.asarray(da[dim].values, dtype=np.float64)
+        raise RuntimeError(f"cannot find coordinate values for dim '{dim}'")
+
+    y = _vec(ydim)
+    x = _vec(xdim)
+
+    rename = {}
+    if ydim != "yy":
+        rename[ydim] = "yy"
+    if xdim != "xx":
+        rename[xdim] = "xx"
+    if rename:
+        da = da.rename(rename)
+    da = da.assign_coords(xx=("xx", x), yy=("yy", y))
+    return da, x, y
 
 
-def _load_coarse_at_time(ds_coarse, var, ti):
-    key = f"{var}_P0"
-    if key not in ds_coarse:
-        raise KeyError(f"coarse file cannot find {key}")
-    da = _mask_fill(ds_coarse[key].isel(time=ti)).load()
-    da = da.rename({"yy_P0": "yy", "xx_P0": "xx"})
-    x_vals = ds_coarse["xx_P0"].values.astype(np.float64)
-    y_vals = ds_coarse["yy_P0"].values.astype(np.float64)
-    da = da.assign_coords(xx=("xx", x_vals), yy=("yy", y_vals))
-    return da
+def _load_map_from_ds(ds, var, tsel):
+    """
+    Load one 2D map for `var` from an open dataset. Accepts either the fine
+    variable name (`h`/`zs`/...) or the BG coarse name (`h_P0`/...). If the
+    variable carries a `time` dim, `tsel` selects the timestep (a size-1 time
+    dim is squeezed automatically). Returns (da, x, y), eagerly loaded.
+    """
+    if var in ds.data_vars:
+        name = var
+    elif f"{var}_P0" in ds.data_vars:
+        name = f"{var}_P0"
+    else:
+        raise KeyError(f"dataset has neither '{var}' nor '{var}_P0'; data_vars={list(ds.data_vars)}")
+
+    da = ds[name]
+    if "time" in da.dims:
+        if tsel is not None:
+            da = da.isel(time=tsel)
+        elif da.sizes["time"] == 1:
+            da = da.isel(time=0)
+        else:
+            raise RuntimeError(
+                f"'{name}' has a time dim of size {da.sizes['time']} but no time index was provided"
+            )
+    da = _mask_fill(da)
+    da, x, y = _normalize_map(da, ds)
+    return da.load(), x, y
+
+
+class _GridSeries:
+    """
+    Unified reader for a flood-map time series stored as EITHER:
+      - a directory of per-timestep NetCDF files (one file per timestep), OR
+      - a single NetCDF file (merged with a `time` dim, or a single timestep).
+    Works for both fine and coarse grids and both variable-naming conventions
+    (see _load_map_from_ds). Timesteps are addressed by integer index `ti`.
+    """
+
+    def __init__(self, path, pat):
+        if not path:
+            raise RuntimeError("empty path passed to _GridSeries")
+        self.path = path
+        self.pat = pat
+        self._ds = None
+        if os.path.isdir(path):
+            self.mode = "dir"
+            self.files = sorted(glob.glob(os.path.join(path, pat)), key=_natural_key)
+            if not self.files:
+                raise RuntimeError(f"Cannot find any file under {path} with pattern {pat}")
+            self.n_times = len(self.files)
+        elif os.path.isfile(path):
+            self._ds = xr.open_dataset(path)
+            if "time" in self._ds.dims:
+                self.mode = "merged"
+                self.n_times = int(self._ds.sizes["time"])
+            else:
+                self.mode = "single"
+                self.n_times = 1
+            self.files = [path]
+        else:
+            raise RuntimeError(f"path is neither a file nor a directory: {path}")
+
+    @property
+    def per_file(self):
+        return self.mode == "dir"
+
+    def describe(self):
+        if self.mode == "dir":
+            return f"dir[{self.n_times} files] {self.path}"
+        return f"{self.mode}[{self.n_times} t] {os.path.basename(self.path)}"
+
+    def src_path(self, ti):
+        return self.files[ti] if self.mode == "dir" else self.files[0]
+
+    def load(self, var, ti):
+        if self.mode == "dir":
+            ds = xr.open_dataset(self.files[ti])
+            try:
+                return _load_map_from_ds(ds, var, None)
+            finally:
+                ds.close()
+        tsel = ti if self.mode == "merged" else None
+        return _load_map_from_ds(self._ds, var, tsel)
+
+    def coords(self, var):
+        _, x, y = self.load(var, 0)
+        return x, y
+
+    def close(self):
+        if self._ds is not None:
+            self._ds.close()
+            self._ds = None
 
 
 def _load_static_gdal(path):
@@ -397,7 +500,7 @@ def run(
     scale=16, patch_coarse=64, out_dir=None, scenario=None, snap_mode="center",
     dx_fine=8.0, file_slope="", file_twi="", file_aspect_sin="", file_aspect_cos="",
     filter_enable=False, filter_thresh=0.2, write_header=True, limit_steps=None,
-    depth_eps=5e-5, vel_eps=1e-5, clip_max_depth=5.0, clip_max_vel_u=5.0, clip_max_vel_v=5.0,
+    depth_eps=5e-5, vel_eps=1e-5, pat_coarse="*.nc",
     debug_align=False, debug_align_max_times=3, debug_align_max_patches=4, debug_align_min_wet_ratio=0.01
 ):
     patch_fine = patch_coarse * scale
@@ -445,31 +548,22 @@ def run(
 
     index_csv = os.path.join(out_dir, "index.csv")
 
-    fine_files = sorted(glob.glob(os.path.join(dir_fine, pat_fine)), key=_natural_key)
-    print(f"[check] {scenario}/{var}: fine_files={len(fine_files)} at {dir_fine} pattern={pat_fine}")
-    if not fine_files:
-        raise RuntimeError(f"Cannot find fine-grid file under {dir_fine} with pattern {pat_fine}")
+    fine_series = _GridSeries(dir_fine, pat_fine)
+    coarse_series = _GridSeries(file_coarse, pat_coarse)
+    print(f"[check] {scenario}/{var}: fine={fine_series.describe()} | coarse={coarse_series.describe()}")
 
-    ds_c = xr.open_dataset(file_coarse)
-
-    try:
-        n_coarse_time = ds_c.sizes.get("time", None)
-        if n_coarse_time is None:
-            n_coarse_time = ds_c["time"].sizes["time"]
-    except Exception:
-        n_coarse_time = None
-
+    n_times = fine_series.n_times
     if isinstance(limit_steps, int) and limit_steps > 0:
-        fine_files = fine_files[:limit_steps]
+        n_times = min(n_times, limit_steps)
 
-    if (n_coarse_time is not None) and (len(fine_files) > n_coarse_time):
-        print(f"[warn] coarse time steps ({n_coarse_time}) < fine files ({len(fine_files)}), truncating fine to coarse.")
-        fine_files = fine_files[:n_coarse_time]
+    n_coarse_time = coarse_series.n_times
+    if n_coarse_time < n_times:
+        print(f"[warn] coarse time steps ({n_coarse_time}) < fine steps ({n_times}), truncating to coarse.")
+        n_times = n_coarse_time
 
-    x_c = ds_c["xx_P0"].values.astype(np.float64)
-    y_c = ds_c["yy_P0"].values.astype(np.float64)
+    x_c, y_c = coarse_series.coords(var)
 
-    _, x_f, y_f = _load_fine(fine_files[0], var)
+    _, x_f, y_f = fine_series.load(var, 0)
     Ny_f, Nx_f = len(y_f), len(x_f)
 
     elev_raw, x_e, y_e = _load_static_gdal(file_elev)
@@ -523,35 +617,31 @@ def run(
                 "aoi_ratio", "filtered_out"
             ])
 
-    for ti, ffile in enumerate(fine_files):
-        t_tag = _extract_t_from_filename(ffile) or f"t{ti:04d}"
+    for ti in range(n_times):
+        ffile = fine_series.src_path(ti)
+        t_tag = (_extract_t_from_filename(ffile) if fine_series.per_file else None) or f"t{ti:04d}"
         debug_saved_patches_this_time = 0
 
         if debug_align:
-            if "time" in ds_c:
-                coarse_time_val = ds_c["time"].values[ti]
-            else:
-                coarse_time_val = "NA"
-
             print(
-                f"[time-check] scenario={scenario}, var={var}, "
-                f"ti={ti}, fine_file={os.path.basename(ffile)}, "
-                f"fine_t_tag={t_tag}, coarse_time={coarse_time_val}"
+                f"[time-check] scenario={scenario}, var={var}, ti={ti}, "
+                f"fine_src={os.path.basename(ffile)}, fine_t_tag={t_tag}, "
+                f"coarse_src={os.path.basename(coarse_series.src_path(ti))}"
             )
 
-        da_f, x_f2, y_f2 = _load_fine(ffile, var)
+        da_f, x_f2, y_f2 = fine_series.load(var, ti)
         if not (np.array_equal(x_f, x_f2) and np.array_equal(y_f, y_f2)):
             raise RuntimeError("different fine-grid file coordinates")
 
-        da_c = _load_coarse_at_time(ds_c, var, ti)
+        da_c, _x_c2, _y_c2 = coarse_series.load(var, ti)
 
         da_zs_f = None
         da_zs_c = None
         if var == "h":
-            da_zs_f, x_zs_f, y_zs_f = _load_fine(ffile, "zs")
+            da_zs_f, x_zs_f, y_zs_f = fine_series.load("zs", ti)
             if not (np.array_equal(x_f, x_zs_f) and np.array_equal(y_f, y_zs_f)):
                 raise RuntimeError(f"fine-grid zs coordinates do not match h coordinates in {ffile}")
-            da_zs_c = _load_coarse_at_time(ds_c, "zs", ti)
+            da_zs_c, _, _ = coarse_series.load("zs", ti)
 
         for r in range(n_rows):
             y0f = r * stride_fine
@@ -698,9 +788,6 @@ def run(
                 if var == "h":
                     _clamp_nonneg_inplace(fine_block, eps=depth_eps)
                     _clamp_nonneg_inplace(coarse_block, eps=depth_eps)
-                    if clip_max_depth is not None and clip_max_depth > 0:
-                        np.minimum(fine_block, clip_max_depth, out=fine_block)
-                        np.minimum(coarse_block, clip_max_depth, out=coarse_block)
 
                     if debug_align and var == "h" and ti < debug_align_max_times:
                         if debug_saved_patches_this_time < debug_align_max_patches:
@@ -769,12 +856,6 @@ def run(
                     if vel_eps > 0.0:
                         np.copyto(fine_block, 0.0, where=np.abs(fine_block) < vel_eps)
                         np.copyto(coarse_block, 0.0, where=np.abs(coarse_block) < vel_eps)
-                    if var == "u" and clip_max_vel_u is not None and clip_max_vel_u > 0:
-                        np.clip(fine_block, -clip_max_vel_u, clip_max_vel_u, out=fine_block)
-                        np.clip(coarse_block, -clip_max_vel_u, clip_max_vel_u, out=coarse_block)
-                    if var == "v" and clip_max_vel_v is not None and clip_max_vel_v > 0:
-                        np.clip(fine_block, -clip_max_vel_v, clip_max_vel_v, out=fine_block)
-                        np.clip(coarse_block, -clip_max_vel_v, clip_max_vel_v, out=coarse_block)
 
                 if slope_block is not None:
                     slope_block = np.nan_to_num(slope_block, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32)
@@ -861,7 +942,8 @@ def run(
                     ])
         print(f"[{scenario}_{var}_{t_tag}] done")
 
-    ds_c.close()
+    fine_series.close()
+    coarse_series.close()
     print("✔ 输出目录：", out_dir)
     print("✔ 索引 CSV：", index_csv)
 
@@ -872,18 +954,19 @@ def parse_args():
     )
     ap.add_argument("--var", nargs="+", choices=["h", "u", "v"], required=True, help="vars (h/u/v)")
     ap.add_argument("--scenarios", nargs="+", help="list of rainfall scenarios, e.g. 100y_42h_0c 100y_48h_0c")
-    ap.add_argument("--dir-fine-template", default="", help="fine dir template with {scenario} placeholder")
-    ap.add_argument("--file-coarse-template", default="", help="coarse file template with {scenario} placeholder")
-    ap.add_argument("--dir-fine", default="", help="per_timestep_merged path")
-    ap.add_argument("--pat-fine", default="merged_series_t*.nc", help="fine re (default: merged_series_t*.nc)")
-    ap.add_argument("--file-coarse", default="", help="coarse BGout.nc path")
+    ap.add_argument("--fine-template", dest="fine_template", default="", help="fine input template with {scenario} placeholder (dir or file)")
+    ap.add_argument("--coarse-template", dest="coarse_template", default="", help="coarse input template with {scenario} placeholder (dir or file)")
+    ap.add_argument("--fine", dest="fine", default="", help="fine-grid input: a directory of per-timestep files, OR a single (merged/single-timestep) NetCDF file")
+    ap.add_argument("--pat-fine", default="merged_series_t*.nc", help="glob for fine files when --fine is a directory (default: merged_series_t*.nc)")
+    ap.add_argument("--coarse", dest="coarse", default="", help="coarse-grid input: a single merged NetCDF (e.g. BGout.nc), OR a directory of per-timestep files")
+    ap.add_argument("--pat-coarse", default="*.nc", help="glob for coarse files when --coarse is a directory (default: *.nc)")
     ap.add_argument("--file-elev", required=True, help="Elevation.nc path")
     ap.add_argument("--file-rough", required=True, help="Roughness.nc path")
     ap.add_argument("--aoi", default="", help="AOI shapefile (.shp) path (可空)")
     ap.add_argument("--scale", type=int, default=16, help="downscaling factor (fine/coarse ratio, default: 16)")
     ap.add_argument("--patch-coarse", type=int, default=64, help="coarse patch size(default: 64)")
     ap.add_argument("--out-dir", default="", help="output dir")
-    ap.add_argument("--scenario", default="", help="rainfall scenario (comes from file-coarse, e.g. 100y_42h_0c)")
+    ap.add_argument("--scenario", default="", help="rainfall scenario name for non-scenario runs (else inferred from --coarse path, e.g. 100y_42h_0c)")
     ap.add_argument("--snap-mode", choices=["center", "ll"], default="center",
                     help="coarse alignment：center=use fine patch center to align (recommend), ll=use lower left corner to align")
     ap.add_argument("--dx-fine", type=float, default=8.0, help="fine grid size, default: 8.0 m")
@@ -895,9 +978,6 @@ def parse_args():
     ap.add_argument("--filter-thresh", type=float, default=0.2, help="AOI coverage threshold (default: 0.2)")
     ap.add_argument("--depth-eps", type=float, default=5e-5, help="for h only: tiny positive depth -> 0 threshold (m). threshold (0.05 m) x 0.1% = 5e-5")
     ap.add_argument("--vel-eps", type=float, default=1e-5, help="|velocity|<vel_eps -> 0 (m/s). threshold (0.01 m/s) x 0.1% = 1e-5")
-    ap.add_argument("--clip-max-depth", type=float, default=5.0, help="clip water depth to this max value (<=0 disables)")
-    ap.add_argument("--clip-max-vel-u", type=float, default=5.0, help="clip |u| to this max value (<=0 disables)")
-    ap.add_argument("--clip-max-vel-v", type=float, default=5.0, help="clip |v| to this max value (<=0 disables)")
     ap.add_argument("--debug-align", action="store_true", help="print time alignment info and save coarse/fine alignment diagnostics")
     ap.add_argument("--debug-align-max-times", type=int, default=3, help="maximum number of timesteps for alignment debug")
     ap.add_argument("--debug-align-max-patches", type=int, default=4, help="maximum number of patches per timestep for alignment debug")
@@ -912,29 +992,30 @@ if __name__ == "__main__":
     print(f"scenarios: [{scenario_names}] + limits: [{scenario_step_limits}]")
 
     if scenario_names:
-        dir_fine_tmpl = args.dir_fine_template or _infer_template(args.dir_fine, scenario_names)
-        coarse_file_tmpl = args.file_coarse_template or _infer_template(args.file_coarse, scenario_names)
+        fine_tmpl = args.fine_template or _infer_template(args.fine, scenario_names)
+        coarse_tmpl = args.coarse_template or _infer_template(args.coarse, scenario_names)
 
-        if not dir_fine_tmpl or not coarse_file_tmpl:
+        if not fine_tmpl or not coarse_tmpl:
             raise RuntimeError(
-                "When using --scenarios, please provide --dir-fine-template and --file-coarse-template, "
-                "or make sure --dir-fine/--file-coarse contain a recognizable scenario token."
+                "When using --scenarios, please provide --fine-template and --coarse-template, "
+                "or make sure --fine/--coarse contain a recognizable scenario token."
             )
 
         header_written = False
         for s in scenario_names:
-            dir_fine = dir_fine_tmpl.format(scenario=s)
-            file_coarse = coarse_file_tmpl.format(scenario=s)
+            fine = fine_tmpl.format(scenario=s)
+            coarse = coarse_tmpl.format(scenario=s)
             s_limit = scenario_step_limits.get(s, None)
             print(f"[info] scenario={s} limit_steps={s_limit if s_limit is not None else 'ALL'}")
-            print(f"[info] scenario={s} dir_fine={dir_fine} file_coarse={file_coarse}")
+            print(f"[info] scenario={s} fine={fine} coarse={coarse}")
 
             for v in args.var:
                 run(
                     var=v,
-                    dir_fine=dir_fine,
+                    dir_fine=fine,
                     pat_fine=args.pat_fine,
-                    file_coarse=file_coarse,
+                    file_coarse=coarse,
+                    pat_coarse=args.pat_coarse,
                     file_elev=args.file_elev,
                     file_rough=args.file_rough,
                     shp_aoi=(args.aoi if args.aoi else None),
@@ -954,9 +1035,6 @@ if __name__ == "__main__":
                     limit_steps=s_limit,
                     depth_eps=args.depth_eps,
                     vel_eps=args.vel_eps,
-                    clip_max_depth=args.clip_max_depth,
-                    clip_max_vel_u=args.clip_max_vel_u,
-                    clip_max_vel_v=args.clip_max_vel_v,
                     debug_align=args.debug_align,
                     debug_align_max_times=args.debug_align_max_times,
                     debug_align_max_patches=args.debug_align_max_patches,
@@ -967,9 +1045,10 @@ if __name__ == "__main__":
         for i, v in enumerate(args.var):
             run(
                 var=v,
-                dir_fine=args.dir_fine,
+                dir_fine=args.fine,
                 pat_fine=args.pat_fine,
-                file_coarse=args.file_coarse,
+                file_coarse=args.coarse,
+                pat_coarse=args.pat_coarse,
                 file_elev=args.file_elev,
                 file_rough=args.file_rough,
                 shp_aoi=(args.aoi if args.aoi else None),
@@ -988,9 +1067,6 @@ if __name__ == "__main__":
                 write_header=(i == 0),
                 depth_eps=args.depth_eps,
                 vel_eps=args.vel_eps,
-                clip_max_depth=args.clip_max_depth,
-                clip_max_vel_u=args.clip_max_vel_u,
-                clip_max_vel_v=args.clip_max_vel_v,
                 debug_align=args.debug_align,
                 debug_align_max_times=args.debug_align_max_times,
                 debug_align_max_patches=args.debug_align_max_patches,

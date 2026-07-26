@@ -1,6 +1,6 @@
 #!/bin/bash
-# Submit the 01 FMPFTV8 evaluation job on the 1000-year / 42 h designed-rainfall test scenario (SLURM / NeSI).
-#SBATCH --job-name=eval_01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_eval_test1000y42h0c
+# Submit the 01 FMPFTV8 evaluation job on the 2-year / 42 h designed-rainfall test scenario (SLURM / NeSI).
+#SBATCH --job-name=eval_01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_u_eval_test2y42h0c
 #SBATCH --account=uoa04425
 #SBATCH --partition=milan,genoa
 #SBATCH --nodes=1
@@ -31,6 +31,6 @@ export PYTHONUNBUFFERED=1
 nvidia-smi
 
 srun torchrun --nproc_per_node=1 --standalone \
-  basicsr/test_flood_map.py -opt options/test/01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_eval_test1000y42h0c.yml \
+  basicsr/test_flood_map.py -opt options/test/01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_u_eval_test2y42h0c.yml \
   --launcher pytorch
 

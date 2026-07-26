@@ -34,6 +34,14 @@ python tools/eval_flood.py \
 
 # 单点也支持基线
 python tools/eval_flood.py --index-csv ... --vis-root ... --pred-source coarse_upsample --query "t0047,100y_42h_0c"
+
+# 速度 u/v（--var u/v + --abs）：wet/dry、分档、accuracy、混淆按 |v| 判定，
+# RMSE/NSE/correlation 用带符号速度。h 不加 --abs，行为不变。
+python tools/eval_flood.py \
+  --index-csv .../testdataset_100y42h0c/index.csv \
+  --vis-root  .../results/01_..._u_eval_test100y42h0c/visualization \
+  --var u --abs \
+  --out-json  .../eval_test_u_summary.json --out-csv-time .../eval_test_u_time.csv
 """
 
 import os
@@ -179,6 +187,13 @@ NSE_SAFE_LOWER_BOUND = -5.0
 #             rescued to 1.0 (near-perfect) or clamped to NSE_SAFE_LOWER_BOUND.
 EMPTY_POLICY = "nan"
 
+# Velocity (u/v) mode: set from --abs in main(). When True, all threshold/band
+# CLASSIFICATION (event masks, band selection, accuracy/confusion band index) is
+# done on |value|; every regression VALUE (rmse/nse/band_sse/correlation/min-max)
+# stays on the SIGNED value. When False (default, water depth) behaviour is
+# identical to before (pa==pred, ga==gt).
+USE_ABS = False
+
 # Four intervals
 DEPTH_BANDS = {
     "nonflood": {"ge": None, "lt": 0.1},
@@ -293,6 +308,12 @@ def compute_patch_stats_depth(pred_hw: np.ndarray, gt_hw: np.ndarray, mask_hw: n
 
     out = {"N": N}
 
+    # For velocity (USE_ABS) threshold/band CLASSIFICATION is on |v|; regression
+    # VALUES (rmse/nse/band_sse/correlation/min-max) stay on signed v. For depth
+    # (USE_ABS=False) pa==pred and ga==gt, so behaviour is unchanged.
+    pa = np.abs(pred) if USE_ABS else pred
+    ga = np.abs(gt) if USE_ABS else gt
+
     # -------------------------------------------------
     # Global regression stats: RMSE / NSE families
     # -------------------------------------------------
@@ -300,8 +321,8 @@ def compute_patch_stats_depth(pred_hw: np.ndarray, gt_hw: np.ndarray, mask_hw: n
     diff2 = diff * diff
     sse = float(diff2[m].sum())
 
-    pred_eff = np.where((pred >= DEPTH_EVENT_THRESHOLD) & m, pred, 0.0)
-    gt_eff = np.where((gt >= DEPTH_EVENT_THRESHOLD) & m, gt, 0.0)
+    pred_eff = np.where((pa >= DEPTH_EVENT_THRESHOLD) & m, pred, 0.0)
+    gt_eff = np.where((ga >= DEPTH_EVENT_THRESHOLD) & m, gt, 0.0)
 
     diff_thr = pred_eff - gt_eff
     sse_thr = float((diff_thr[m] ** 2).sum())
@@ -332,8 +353,8 @@ def compute_patch_stats_depth(pred_hw: np.ndarray, gt_hw: np.ndarray, mask_hw: n
     # -------------------------------------------------
     # Flood/nonflood classification stats
     # -------------------------------------------------
-    p_evt = (pred >= DEPTH_EVENT_THRESHOLD) & m
-    t_evt = (gt >= DEPTH_EVENT_THRESHOLD) & m
+    p_evt = (pa >= DEPTH_EVENT_THRESHOLD) & m
+    t_evt = (ga >= DEPTH_EVENT_THRESHOLD) & m
 
     out["tp"] = int((p_evt & t_evt).sum())
     out["fp"] = int((p_evt & (~t_evt)).sum())
@@ -356,8 +377,8 @@ def compute_patch_stats_depth(pred_hw: np.ndarray, gt_hw: np.ndarray, mask_hw: n
         ge = band_cfg["ge"]
         lt = band_cfg["lt"]
 
-        gt_band = select_band(gt, ge=ge, lt=lt) & m
-        pred_band = select_band(pred, ge=ge, lt=lt) & m
+        gt_band = select_band(ga, ge=ge, lt=lt) & m
+        pred_band = select_band(pa, ge=ge, lt=lt) & m
 
         band_n = int(gt_band.sum())
         band_sse = float(((pred - gt) ** 2)[gt_band].sum()) if band_n > 0 else 0.0
@@ -387,8 +408,8 @@ def compute_patch_stats_depth(pred_hw: np.ndarray, gt_hw: np.ndarray, mask_hw: n
         idx[x >= 1.0] = 3
         return idx
 
-    pb = _band_index(pred)
-    gb = _band_index(gt)
+    pb = _band_index(pa)
+    gb = _band_index(ga)
     out["n_correct"] = int(((pb == gb) & m).sum())
     for gi in range(4):
         for pi in range(4):
@@ -801,13 +822,15 @@ def mapmean_from_time_rows(time_rows):
 def upsample_coarse_to_fine(coarse_hw, out_hw):
     """Bicubic-upsample a coarse (physical) map to (H, W). Lazy torch import; the
     coarse-upsample baseline is exactly what He et al. call the 'interpolated
-    coarse-grid' result. Negative overshoots are clamped to 0 (depth >= 0)."""
+    coarse-grid' result. For depth, negative overshoots are clamped to 0
+    (depth >= 0); for velocity (USE_ABS) the signed field is kept as-is."""
     import torch
     import torch.nn.functional as F
     t = torch.from_numpy(np.asarray(coarse_hw, dtype=np.float32))[None, None]
     up = F.interpolate(t, size=(int(out_hw[0]), int(out_hw[1])),
                        mode="bicubic", align_corners=False)
-    return np.clip(up[0, 0].numpy().astype(np.float64), 0.0, None)
+    out = up[0, 0].numpy().astype(np.float64)
+    return out if USE_ABS else np.clip(out, 0.0, None)
 
 
 def _load_patch_pred_gt_mask(core, idx, vis_root, pred_source="model"):
@@ -881,7 +904,11 @@ def main():
     ap.add_argument("--out-csv-time", default="", help="(scenario,t) metrics csv")
     ap.add_argument("--out-csv-scenario", default="", help="scenario metrics csv")
 
-    ap.add_argument("--var", default="h", help="filter variable, e.g. h")
+    ap.add_argument("--var", default="h", help="filter variable: h (default), u, or v")
+    ap.add_argument("--abs", action="store_true",
+                    help="velocity mode (u/v): classify wet/dry, bands, accuracy and confusion by "
+                         "|value| (so 0.1/0.5/1.0 are |v| thresholds); RMSE/NSE/correlation stay on "
+                         "the signed velocity. Leave OFF for water depth (h).")
     ap.add_argument("--limit", type=int, default=0, help="limit number of patches for quick test")
     ap.add_argument("--empty-policy", choices=["nan", "zero"], default="nan",
                     help="how flood-free / near-flat patches & maps are handled. "
@@ -893,8 +920,9 @@ def main():
 
     args = ap.parse_args()
 
-    global EMPTY_POLICY
+    global EMPTY_POLICY, USE_ABS
     EMPTY_POLICY = args.empty_policy
+    USE_ABS = bool(args.abs)
 
     idx = build_index_map(args.index_csv)
 
@@ -1101,6 +1129,8 @@ def main():
 
     ds = {
         "pred_source": args.pred_source,
+        "var": args.var,
+        "use_abs": USE_ABS,
         "n_patches": len(patch_rows),
         "n_timesteps": len(time_rows),
         "num_valid_sum": int(sum(r["num_valid"] for r in patch_rows)),
@@ -1124,6 +1154,11 @@ def main():
                 "precision/recall/csi and NSE, set to NaN and dropped from "
                 "*_patch_mean / *_mapmean (matches training empty_as_nan:true). "
                 "zero: legacy (0 ratios, NSE rescued to 1.0 / clamped to -5)."
+            ),
+            "use_abs": (
+                "velocity mode: wet/dry, bands, accuracy and confusion use |value| "
+                "(0.1/0.5/1.0 are |v| thresholds); RMSE/NSE/correlation stay signed. "
+                "OFF = water depth (unchanged)."
             ),
             "depth_event_threshold": DEPTH_EVENT_THRESHOLD,
             "depth_abs_tol": DEPTH_ABS_TOL,

@@ -157,20 +157,24 @@ def cal_rmse_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
 
 @METRIC_REGISTRY.register()
 def cal_rmse_threshold_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
-                          reduction: str = "mean", eps: float = 1e-12, threshold: float = 0.05):
+                          reduction: str = "mean", eps: float = 1e-12, threshold: float = 0.05,
+                          use_abs: bool = False):
     """
     RMSE with physical threshold.
 
     Values < threshold are set to 0 for both pred and target,
     then RMSE is calculated over the full masked domain.
+    For u/v (use_abs) the threshold is applied to |v|; retained values stay signed.
     """
     pred = ensure_4d_pt(pred)
     target = ensure_4d_pt(target)
     mask = ensure_4d_pt(mask)
 
-    active_p = (pred >= threshold) & (mask > 0)
+    sp = pred.abs() if use_abs else pred
+    st = target.abs() if use_abs else target
+    active_p = (sp >= threshold) & (mask > 0)
     pred_eff = torch.where(active_p, pred, torch.zeros_like(pred))
-    active_t = (target >= threshold) & (mask > 0)
+    active_t = (st >= threshold) & (mask > 0)
     target_eff = torch.where(active_t, target, torch.zeros_like(target))
 
     diff2 = (pred_eff - target_eff) ** 2
@@ -186,21 +190,25 @@ def cal_rmse_threshold_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.
 @METRIC_REGISTRY.register()
 def cal_rmse_threshold_tolerant_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
                                    reduction: str = "mean", eps: float = 1e-12,
-                                   threshold: float = 0.05, abs_tol: float = 0.01):
+                                   threshold: float = 0.05, abs_tol: float = 0.01,
+                                   use_abs: bool = False):
     """
     RMSE with physical threshold + error tolerance.
 
     Values < threshold are set to 0 for both pred and target,
     and errors < abs_tol are set to 0,
     then RMSE is calculated over the full masked domain.
+    For u/v (use_abs) the threshold is applied to |v|; retained values stay signed.
     """
     pred = ensure_4d_pt(pred)
     target = ensure_4d_pt(target)
     mask = ensure_4d_pt(mask)
 
-    active_p = (pred >= threshold) & (mask > 0)
+    sp = pred.abs() if use_abs else pred
+    st = target.abs() if use_abs else target
+    active_p = (sp >= threshold) & (mask > 0)
     pred_eff = torch.where(active_p, pred, torch.zeros_like(pred))
-    active_t = (target >= threshold) & (mask > 0)
+    active_t = (st >= threshold) & (mask > 0)
     target_eff = torch.where(active_t, target, torch.zeros_like(target))
 
     diff = pred_eff - target_eff
@@ -290,7 +298,8 @@ def cal_rmse_conditional_pt(pred: torch.Tensor, target: torch.Tensor, mask: torc
                             reduction: str = "mean", eps: float = 1e-12,
                             cond_on_target_ge: Optional[float] = None,
                             cond_on_target_lt: Optional[float] = None,
-                            abs_tol: Optional[float] = None):
+                            abs_tol: Optional[float] = None,
+                            use_abs: bool = False):
     pred = ensure_4d_pt(pred)
     target = ensure_4d_pt(target)
     mask = ensure_4d_pt(mask)
@@ -298,11 +307,15 @@ def cal_rmse_conditional_pt(pred: torch.Tensor, target: torch.Tensor, mask: torc
     m = mask > 0.5
     sel = m
 
+    # For u/v, band selection is on |v| (magnitude); the RMSE value below stays
+    # on the SIGNED difference (pred - target).
+    sel_target = target.abs() if use_abs else target
+
     if cond_on_target_ge is not None:
-        sel = sel & (target >= cond_on_target_ge)
+        sel = sel & (sel_target >= cond_on_target_ge)
 
     if cond_on_target_lt is not None:
-        sel = sel & (target < cond_on_target_lt)
+        sel = sel & (sel_target < cond_on_target_lt)
 
     diff = pred - target
     if abs_tol is not None:
@@ -476,16 +489,19 @@ def cal_nse_pt_safe(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor
 @METRIC_REGISTRY.register()
 def cal_nse_threshold_pt_safe(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
                               reduction: str = "mean", eps: float = 1e-12, min_var: float = 1e-6,
-                              abs_tol_per_px: float = 1e-4, lower_bound: float = -5.0, threshold: float = 0.05):
+                              abs_tol_per_px: float = 1e-4, lower_bound: float = -5.0, threshold: float = 0.05,
+                              use_abs: bool = False):
     pred = ensure_4d_pt(pred)
     target = ensure_4d_pt(target)
     mask = ensure_4d_pt(mask)
 
     w = mask
 
-    active_p = (pred >= threshold) & (mask > 0)
+    sp = pred.abs() if use_abs else pred
+    st = target.abs() if use_abs else target
+    active_p = (sp >= threshold) & (mask > 0)
     pred_eff = torch.where(active_p, pred, torch.zeros_like(pred))
-    active_t = (target >= threshold) & (mask > 0)
+    active_t = (st >= threshold) & (mask > 0)
     target_eff = torch.where(active_t, target, torch.zeros_like(target))
 
     wsum = sum_over_hw(w).clamp_min(eps)
@@ -522,16 +538,19 @@ def cal_nse_threshold_pt_safe(pred: torch.Tensor, target: torch.Tensor, mask: to
 def cal_nse_threshold_tolerant_pt_safe(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
                                        reduction: str = "mean", eps: float = 1e-12, min_var: float = 1e-6,
                                        abs_tol_per_px: float = 1e-4, lower_bound: float = -5.0,
-                                       threshold: float = 0.05, abs_tol: float = 0.01):
+                                       threshold: float = 0.05, abs_tol: float = 0.01,
+                                       use_abs: bool = False):
     pred = ensure_4d_pt(pred)
     target = ensure_4d_pt(target)
     mask = ensure_4d_pt(mask)
 
     w = mask
 
-    active_p = (pred >= threshold) & (mask > 0)
+    sp = pred.abs() if use_abs else pred
+    st = target.abs() if use_abs else target
+    active_p = (sp >= threshold) & (mask > 0)
     pred_eff = torch.where(active_p, pred, torch.zeros_like(pred))
-    active_t = (target >= threshold) & (mask > 0)
+    active_t = (st >= threshold) & (mask > 0)
     target_eff = torch.where(active_t, target, torch.zeros_like(target))
 
     wsum = sum_over_hw(w).clamp_min(eps)
@@ -774,7 +793,8 @@ def cal_nse_threshold_tolerant_np_safe(pred: np.ndarray, target: np.ndarray, mas
 @METRIC_REGISTRY.register()
 def cal_csi_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
                threshold: float = 0.05, reduction: str = "mean",
-               empty_as_nan: bool = False, eps: float = 1e-12):
+               empty_as_nan: bool = False, eps: float = 1e-12,
+               use_abs: bool = False):
     """
     Critical Success Index (CSI) on tensors in physical domain.
 
@@ -796,6 +816,10 @@ def cal_csi_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
     target = ensure_4d_pt(target)
     mask = ensure_4d_pt(mask)
 
+    if use_abs:
+        pred = pred.abs()
+        target = target.abs()
+
     m = mask > 0.5
     p_evt = (pred >= threshold) & m
     t_evt = (target >= threshold) & m
@@ -812,14 +836,17 @@ def cal_csi_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
 def cal_csi_tolerant_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
                         threshold: float = 0.05, reduction: str = "mean",
                         eps: float = 1e-12, abs_tol: float = 0.01,
-                        empty_as_nan: bool = False):
+                        empty_as_nan: bool = False, use_abs: bool = False):
     pred = ensure_4d_pt(pred)
     target = ensure_4d_pt(target)
     mask = ensure_4d_pt(mask)
 
+    sp = pred.abs() if use_abs else pred
+    st = target.abs() if use_abs else target
+
     m = mask > 0.5
-    p_evt_raw = (pred >= threshold) & m
-    t_evt = (target >= threshold) & m
+    p_evt_raw = (sp >= threshold) & m
+    t_evt = (st >= threshold) & m
 
     abs_err = (pred - target).abs()
     borderline = (abs_err <= abs_tol) & m
@@ -881,10 +908,15 @@ def cal_csi_tolerant_np(pred: np.ndarray, target: np.ndarray, mask: np.ndarray,
 @METRIC_REGISTRY.register()
 def cal_precision_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
                      threshold: float = 0.05, reduction: str = "mean",
-                     empty_as_nan: bool = False, eps: float = 1e-12):
+                     empty_as_nan: bool = False, eps: float = 1e-12,
+                     use_abs: bool = False):
     pred = ensure_4d_pt(pred)
     target = ensure_4d_pt(target)
     mask = ensure_4d_pt(mask)
+
+    if use_abs:
+        pred = pred.abs()
+        target = target.abs()
 
     m = mask > 0.5
     p_evt = (pred >= threshold) & m
@@ -901,14 +933,17 @@ def cal_precision_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tenso
 def cal_precision_tolerant_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
                               threshold: float = 0.05, reduction: str = "mean",
                               eps: float = 1e-12, abs_tol: float = 0.01,
-                              empty_as_nan: bool = False):
+                              empty_as_nan: bool = False, use_abs: bool = False):
     pred = ensure_4d_pt(pred)
     target = ensure_4d_pt(target)
     mask = ensure_4d_pt(mask)
 
+    sp = pred.abs() if use_abs else pred
+    st = target.abs() if use_abs else target
+
     m = mask > 0.5
-    p_evt_raw = (pred >= threshold) & m
-    t_evt = (target >= threshold) & m
+    p_evt_raw = (sp >= threshold) & m
+    t_evt = (st >= threshold) & m
 
     abs_err = (pred - target).abs()
     borderline = (abs_err <= abs_tol) & m
@@ -970,10 +1005,15 @@ def cal_precision_band_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.
                           band_lt: Optional[float] = None,
                           reduction: str = "mean",
                           empty_as_nan: bool = False,
-                          eps: float = 1e-12,):
+                          eps: float = 1e-12,
+                          use_abs: bool = False):
     pred = ensure_4d_pt(pred)
     target = ensure_4d_pt(target)
     mask = ensure_4d_pt(mask)
+
+    if use_abs:
+        pred = pred.abs()
+        target = target.abs()
 
     m = mask > 0.5
 
@@ -998,10 +1038,15 @@ def cal_precision_band_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.
 @METRIC_REGISTRY.register()
 def cal_recall_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
                   threshold: float = 0.05, reduction: str = "mean",
-                  empty_as_nan: bool = False, eps: float = 1e-12):
+                  empty_as_nan: bool = False, eps: float = 1e-12,
+                  use_abs: bool = False):
     pred = ensure_4d_pt(pred)
     target = ensure_4d_pt(target)
     mask = ensure_4d_pt(mask)
+
+    if use_abs:
+        pred = pred.abs()
+        target = target.abs()
 
     m = mask > 0.5
     p_evt = (pred >= threshold) & m
@@ -1018,14 +1063,17 @@ def cal_recall_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
 def cal_recall_tolerant_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
                            threshold: float = 0.05, reduction: str = "mean",
                            eps: float = 1e-12, abs_tol: float = 0.01,
-                           empty_as_nan: bool = False):
+                           empty_as_nan: bool = False, use_abs: bool = False):
     pred = ensure_4d_pt(pred)
     target = ensure_4d_pt(target)
     mask = ensure_4d_pt(mask)
 
+    sp = pred.abs() if use_abs else pred
+    st = target.abs() if use_abs else target
+
     m = mask > 0.5
-    p_evt_raw = (pred >= threshold) & m
-    t_evt = (target >= threshold) & m
+    p_evt_raw = (sp >= threshold) & m
+    t_evt = (st >= threshold) & m
 
     abs_err = (pred - target).abs()
     borderline = (abs_err <= abs_tol) & m
@@ -1087,10 +1135,15 @@ def cal_recall_band_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Ten
                        band_lt: Optional[float] = None,
                        reduction: str = "mean",
                        empty_as_nan: bool = False,
-                       eps: float = 1e-12,):
+                       eps: float = 1e-12,
+                       use_abs: bool = False):
     pred = ensure_4d_pt(pred)
     target = ensure_4d_pt(target)
     mask = ensure_4d_pt(mask)
+
+    if use_abs:
+        pred = pred.abs()
+        target = target.abs()
 
     m = mask > 0.5
 
@@ -1114,10 +1167,14 @@ def cal_recall_band_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Ten
 
 @METRIC_REGISTRY.register()
 def cal_prev_t_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
-                  threshold: float = 0.05, reduction: str = "mean", eps: float = 1e-12):
+                  threshold: float = 0.05, reduction: str = "mean", eps: float = 1e-12,
+                  use_abs: bool = False):
     _ = pred
     target = ensure_4d_pt(target)
     mask = ensure_4d_pt(mask)
+
+    if use_abs:
+        target = target.abs()
 
     m = mask > 0.5
     t_evt = (target >= threshold) & m
@@ -1152,10 +1209,14 @@ def cal_prev_t_np(pred: np.ndarray, target: np.ndarray, mask: np.ndarray,
 
 @METRIC_REGISTRY.register()
 def cal_prev_p_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
-                  threshold: float = 0.05, reduction: str = "mean", eps: float = 1e-12):
+                  threshold: float = 0.05, reduction: str = "mean", eps: float = 1e-12,
+                  use_abs: bool = False):
     _ = target
     pred = ensure_4d_pt(pred)
     mask = ensure_4d_pt(mask)
+
+    if use_abs:
+        pred = pred.abs()
 
     m = mask > 0.5
     p_evt = (pred >= threshold) & m
@@ -1186,6 +1247,38 @@ def cal_prev_p_np(pred: np.ndarray, target: np.ndarray, mask: np.ndarray,
     if reduction == "none":
         return prev_p
     return float(prev_p.mean())
+
+
+@METRIC_REGISTRY.register()
+def cal_accuracy_pt(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
+                    threshold: float = 0.05, reduction: str = "mean",
+                    eps: float = 1e-12, use_abs: bool = False):
+    """
+    Wet/dry classification accuracy on tensors in physical domain.
+
+    A cell is 'wet' if value >= threshold (for u/v pass use_abs=True to test |v|).
+    accuracy = (TP + TN) / valid_AOI_cells.
+    """
+    pred = ensure_4d_pt(pred)
+    target = ensure_4d_pt(target)
+    mask = ensure_4d_pt(mask)
+
+    if use_abs:
+        pred = pred.abs()
+        target = target.abs()
+
+    m = mask > 0.5
+    p_evt = (pred >= threshold) & m
+    t_evt = (target >= threshold) & m
+
+    correct = ((p_evt == t_evt) & m).to(pred.dtype)
+    num = sum_over_hw(correct)
+    denom = sum_over_hw(m.to(pred.dtype)).clamp_min(eps)
+
+    acc = num / denom
+    if reduction == "none":
+        return acc
+    return acc.mean().item()
 
 
 @METRIC_REGISTRY.register()

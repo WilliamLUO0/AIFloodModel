@@ -29,6 +29,7 @@ class MaskWeightedL2Loss(nn.Module):
         loss_weight: float = 1.0,
         tau_flood_m: float = 0.05,
         tau_is_physical: bool = True,
+        abs_target: bool = False,
         var: str = "h",
         transform: str = "log1p",
         norm: str = "zscore",
@@ -54,6 +55,11 @@ class MaskWeightedL2Loss(nn.Module):
         self.loss_weight = float(loss_weight)
         self.tau_flood_m = float(tau_flood_m)
         self.tau_is_physical = bool(tau_is_physical)
+        # u/v: wet/depth thresholds must use |v| (|asinh(v/s)| >= asinh(tau/s)); the abs
+        # is taken in the asinh space (before norm), NOT on the z-scored value. No-op for h.
+        self.abs_target = bool(abs_target)
+        if self.abs_target and not self.tau_is_physical:
+            raise ValueError("[MaskWeightedL2Loss] abs_target=True requires tau_is_physical=True.")
 
         self.var = str(var).lower().strip()
         self.transform = str(transform).lower().strip()
@@ -121,7 +127,7 @@ class MaskWeightedL2Loss(nn.Module):
         self.register_buffer("tau_std", torch.tensor(tau_std, dtype=torch.float32))
 
         logger.info(
-            f"[MaskWeightedL2Loss] var={self.var}, transform={self.transform}, norm={self.norm}, "
+            f"[MaskWeightedL2Loss] var={self.var}, abs_target={self.abs_target}, transform={self.transform}, norm={self.norm}, "
             f"h_asinh_q={self.h_asinh_q if (self.var == 'h' and self.transform == 'asinh') else None}, "
             f"asinh_scale={self.asinh_scale if self.transform == 'asinh' else None}, "
             f"tau_flood_m={self.tau_flood_m}, tau_std={float(self.tau_std.item()):.6f}, "
@@ -173,6 +179,23 @@ class MaskWeightedL2Loss(nn.Module):
         s = max(self.depth_scale, self.eps)
         return 1.0 - torch.exp(-excess / s)
 
+    def _thr_target(self, target: torch.Tensor) -> torch.Tensor:
+        """
+        Target used ONLY for wet/depth thresholding. For h returns `target` unchanged.
+        For u/v (abs_target) we need |v| >= tau, i.e. |asinh(v/s)| >= asinh(tau/s):
+        de-standardize back to asinh(v/s), abs, then re-apply the SAME norm so the
+        result stays directly comparable to tau_std (and keeps _depth_strength's units).
+        """
+        if not self.abs_target:
+            return target
+        if self.norm == "zscore":
+            denom = self.stats_std + self.eps
+            phys = target * denom + self.stats_mean
+            return (phys.abs() - self.stats_mean) / denom
+        denom = (self.stats_max - self.stats_min) + self.eps
+        phys = target * denom + self.stats_min
+        return (phys.abs() - self.stats_min) / denom
+
     def forward(self, pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor):
         if mask.dim() == 3:
             mask = mask.unsqueeze(1)
@@ -180,8 +203,10 @@ class MaskWeightedL2Loss(nn.Module):
 
         diff = F.mse_loss(pred, target, reduction="none")
 
+        t_thr = self._thr_target(target)
+
         with torch.no_grad():
-            wet = (target >= self.tau_std).to(dtype=diff.dtype)
+            wet = (t_thr >= self.tau_std).to(dtype=diff.dtype)
 
         w = diff.new_ones(diff.shape)
 
@@ -189,7 +214,7 @@ class MaskWeightedL2Loss(nn.Module):
             w = w + self.wet_lambda * wet
 
         if self.use_depth_weight and (self.depth_mu != 0):
-            g = self._depth_strength(target).to(dtype=diff.dtype)
+            g = self._depth_strength(t_thr).to(dtype=diff.dtype)
             w = w + self.depth_mu * g
 
         w = w.clamp(self.weight_min, self.weight_max)

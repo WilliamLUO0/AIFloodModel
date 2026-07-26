@@ -1,6 +1,6 @@
 #!/bin/bash
-# Submit the 01 FMPFTV8 evaluation job on the 1000-year / 42 h designed-rainfall test scenario (SLURM / NeSI).
-#SBATCH --job-name=eval_01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_eval_test1000y42h0c
+# Submit the 01 FMPFTV8 evaluation job on the Cyclone Gabrielle real-event test set (Gisborne) (SLURM / NeSI).
+#SBATCH --job-name=eval_01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_u_eval_gabrielle
 #SBATCH --account=uoa04425
 #SBATCH --partition=milan,genoa
 #SBATCH --nodes=1
@@ -9,8 +9,8 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=24G
 #SBATCH --time=6:00:00
-#SBATCH --output=logs/%x_%j.out
-#SBATCH --error=logs/%x_%j.err
+#SBATCH --output=logs1/%x_%j.out
+#SBATCH --error=logs1/%x_%j.err
 
 set -euo pipefail
 
@@ -31,6 +31,6 @@ export PYTHONUNBUFFERED=1
 nvidia-smi
 
 srun torchrun --nproc_per_node=1 --standalone \
-  basicsr/test_flood_map.py -opt options/test/01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_eval_test1000y42h0c.yml \
+  basicsr/test_flood_map.py -opt options/test/01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_u_eval_gabrielle.yml \
   --launcher pytorch
 

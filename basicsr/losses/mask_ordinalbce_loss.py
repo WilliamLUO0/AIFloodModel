@@ -31,6 +31,7 @@ class MaskOrdinalBCELoss(nn.Module):
         tau2_m: float = 0.5,
         tau3_m: float = 1.0,
         tau_is_physical: bool = True,
+        abs_target: bool = False,
         var: str = "h",
         transform: str = "log1p",
         norm: str = "zscore",
@@ -60,6 +61,11 @@ class MaskOrdinalBCELoss(nn.Module):
         self.tau2_m = float(tau2_m)
         self.tau3_m = float(tau3_m)
         self.tau_is_physical = bool(tau_is_physical)
+        # For velocity (u/v): classify by |v| >= tau. asinh is odd, so
+        # |asinh(v/s)| = asinh(|v|/s); the abs MUST be taken in the asinh space
+        # (before z-score), because z-score subtracts a non-zero mean and
+        # |zscore(asinh(v/s))| != zscore(|asinh(v/s)|).
+        self.abs_target = bool(abs_target)
 
         self.var = str(var).lower().strip()
         self.transform = str(transform).lower().strip()
@@ -126,8 +132,23 @@ class MaskOrdinalBCELoss(nn.Module):
         self.register_buffer("tau2_std", torch.tensor(tau2_std, dtype=torch.float32))
         self.register_buffer("tau3_std", torch.tensor(tau3_std, dtype=torch.float32))
 
+        # asinh-space thresholds (pre z-score), used only when abs_target=True.
+        if self.abs_target:
+            if not self.tau_is_physical:
+                raise ValueError(
+                    "[MaskOrdinalBCELoss] abs_target=True requires tau_is_physical=True "
+                    "(need physical thresholds mapped into the asinh space)."
+                )
+            tau1_t = self._transform_physical_scalar(self.tau1_m)
+            tau2_t = self._transform_physical_scalar(self.tau2_m)
+            tau3_t = self._transform_physical_scalar(self.tau3_m)
+            self.register_buffer("tau1_t", torch.tensor(tau1_t, dtype=torch.float32))
+            self.register_buffer("tau2_t", torch.tensor(tau2_t, dtype=torch.float32))
+            self.register_buffer("tau3_t", torch.tensor(tau3_t, dtype=torch.float32))
+
         logger.info(
-            f"[MaskOrdinalBCELoss] tau_std=({tau1_std:.6f}, {tau2_std:.6f}, {tau3_std:.6f}), "
+            f"[MaskOrdinalBCELoss] var={self.var}, abs_target={self.abs_target}, "
+            f"tau_std=({tau1_std:.6f}, {tau2_std:.6f}, {tau3_std:.6f}), "
             f"weights=({self.w1}, {self.w2}, {self.w3}), "
             f"use_pos_weight={self.use_pos_weight}, focal_gamma={self.focal_gamma}"
         )
@@ -190,9 +211,18 @@ class MaskOrdinalBCELoss(nn.Module):
         mask = mask.to(dtype=pred_logit.dtype)
 
         with torch.no_grad():
-            t1 = (target_depth >= self.tau1_std).to(dtype=pred_logit.dtype)
-            t2 = (target_depth >= self.tau2_std).to(dtype=pred_logit.dtype)
-            t3 = (target_depth >= self.tau3_std).to(dtype=pred_logit.dtype)
+            if self.abs_target:
+                # de-standardize back to asinh space, then classify by |asinh(v/s)|
+                # so that the labels correspond to |v| >= tau (direction-agnostic).
+                phys = target_depth * (self.stats_std + self.eps) + self.stats_mean
+                av = phys.abs()
+                t1 = (av >= self.tau1_t).to(dtype=pred_logit.dtype)
+                t2 = (av >= self.tau2_t).to(dtype=pred_logit.dtype)
+                t3 = (av >= self.tau3_t).to(dtype=pred_logit.dtype)
+            else:
+                t1 = (target_depth >= self.tau1_std).to(dtype=pred_logit.dtype)
+                t2 = (target_depth >= self.tau2_std).to(dtype=pred_logit.dtype)
+                t3 = (target_depth >= self.tau3_std).to(dtype=pred_logit.dtype)
 
         l1 = self._masked_binary_loss(pred_logit[:, 0:1], t1, mask)
         l2 = self._masked_binary_loss(pred_logit[:, 1:2], t2, mask)

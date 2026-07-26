@@ -44,21 +44,28 @@ def count_thresholds(values, name, thresholds=(0.0, 0.001, 0.005, 0.01)):
 def compute_interval_stats(
     fine_path,
     mask_path,
-    h_slight=0.1,
-    h_severe=0.5,
-    h_extreme=1.0,
+    t_slight=0.1,
+    t_severe=0.5,
+    t_extreme=1.0,
+    use_abs=False,
 ):
-    h = np.load(fine_path).astype(np.float32)
+    arr = np.load(fine_path).astype(np.float32)
     mask = np.load(mask_path).astype(bool)
 
-    if h.shape != mask.shape:
+    if arr.shape != mask.shape:
         raise RuntimeError(
-            f"Shape mismatch: h={h.shape}, mask={mask.shape}, "
+            f"Shape mismatch: arr={arr.shape}, mask={mask.shape}, "
             f"fine_path={fine_path}, mask_path={mask_path}"
         )
 
-    # Only AOI, finite, non-negative depth cells are counted as valid.
-    valid = mask & np.isfinite(h) & (h >= 0.0)
+    if use_abs:
+        # velocity (u/v): classify by |v|; negative values are valid.
+        valid = mask & np.isfinite(arr)
+        val = np.abs(arr)
+    else:
+        # water depth: AOI, finite, non-negative cells are valid.
+        valid = mask & np.isfinite(arr) & (arr >= 0.0)
+        val = arr
 
     valid_count = int(np.count_nonzero(valid))
 
@@ -77,15 +84,13 @@ def compute_interval_stats(
             "wet_ratio": 0.0,
         }
 
-    # Left-closed and right-open intervals:
-    # nonflood: 0.0 <= h < 0.1
-    # slight:   0.1 <= h < 0.5
-    # severe:   0.5 <= h < 1.0
-    # extreme:  h >= 1.0
-    nonflood = valid & (h < h_slight)
-    slight = valid & (h >= h_slight) & (h < h_severe)
-    severe = valid & (h >= h_severe) & (h < h_extreme)
-    extreme = valid & (h >= h_extreme)
+    # Left-closed, right-open intervals on `val` (depth h, or |velocity| when use_abs):
+    # nonflood: [0, t_slight)   slight: [t_slight, t_severe)
+    # severe:   [t_severe, t_extreme)   extreme: [t_extreme, +inf)
+    nonflood = valid & (val < t_slight)
+    slight = valid & (val >= t_slight) & (val < t_severe)
+    severe = valid & (val >= t_severe) & (val < t_extreme)
+    extreme = valid & (val >= t_extreme)
 
     nonflood_count = int(np.count_nonzero(nonflood))
     slight_count = int(np.count_nonzero(slight))
@@ -156,8 +161,10 @@ def main():
     parser.add_argument("--out-csv", required=True)
     parser.add_argument("--out-json", required=True)
     parser.add_argument("--root", default="")
-    parser.add_argument("--target-var", default="h", choices=["h"])
+    parser.add_argument("--target-var", default="h", choices=["h", "u", "v"])
 
+    # For h these are water-depth thresholds (m); for u/v they are |velocity|
+    # thresholds (m/s). Same numeric defaults 0.1/0.5/1.0.
     parser.add_argument("--h-slight", type=float, default=0.1)
     parser.add_argument("--h-severe", type=float, default=0.5)
     parser.add_argument("--h-extreme", type=float, default=1.0)
@@ -250,9 +257,10 @@ def main():
         stats = compute_interval_stats(
             fine_path=fine_path,
             mask_path=mask_path,
-            h_slight=args.h_slight,
-            h_severe=args.h_severe,
-            h_extreme=args.h_extreme,
+            t_slight=args.h_slight,
+            t_severe=args.h_severe,
+            t_extreme=args.h_extreme,
+            use_abs=(args.target_var in ("u", "v")),
         )
 
         # Always write patch-level stats to the output CSV for all valid target patches.
