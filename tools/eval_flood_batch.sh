@@ -39,22 +39,17 @@ TEST_INDEX=index.csv                         # test-dataset index
 # ===================== EDIT HERE: which experiments =====================
 # Main model -> evaluated on val + the three designed 42h test scenarios + Gabrielle.
 MAIN_EXPERIMENTS=(
-
+  01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW
 )
 
 # Ablations / baselines -> evaluated on the VAL set only. Add or remove lines freely.
 VAL_ONLY_EXPERIMENTS=(
-  02_RSwinUNet_SRx8_Filter_InbaL1
-  02_RSwinUNet_SRx8_Filter_InbaL1BCE_LW
-  03_FMPFTV8_Abl_coarse_demOnly_SRx8_Filter_InbaL1BCE_LW
-  03_FMPFTV8_Abl_coarse_zsOnly_SRx8_Filter_InbaL1BCE_LW
-  03_FMPFTV8_Abl_static_demOnly_SRx8_Filter_InbaL1BCE_LW
-  03_FMPFTV8_Abl_static_noAspect_SRx8_Filter_InbaL1BCE_LW
+
 )
 
 # Compute the coarse-upsample baseline too? It is MODEL-INDEPENDENT (just bicubic
 # upsampling of the coarse map), so it is computed ONCE per dataset, not per model.
-RUN_BASELINE=0
+RUN_BASELINE=1
 # =======================================================================
 
 FILTERED_DS=dataset_ds8_filtered_thr0p1_min5100_full

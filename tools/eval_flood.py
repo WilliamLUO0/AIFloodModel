@@ -58,8 +58,11 @@ import numpy as np
 # =========================================================
 # File/folder parsing
 # =========================================================
+# scenario is non-greedy so it matches BOTH the design-rain token (e.g.
+# "100y_42h_0c", which itself contains underscores) and free-form names like
+# "gabrielle"; the fixed "_t<4d>_r<3d>_c<3d>_s<d>" suffix pins where it ends.
 CORE_RE = re.compile(
-    r'^(?P<var>h|zs|u|v)_(?P<scenario>\d+y_\d+h_\d+c)_(?P<t>t\d{4})_r(?P<r>\d{3})_c(?P<c>\d{3})_s(?P<s>\d+)$'
+    r'^(?P<var>h|zs|u|v)_(?P<scenario>.+?)_(?P<t>t\d{4})_r(?P<r>\d{3})_c(?P<c>\d{3})_s(?P<s>\d+)$'
 )
 FOLDER_RE = re.compile(r'^(?P<core>.+)_coarse$')
 
@@ -941,12 +944,18 @@ def main():
     #  - without --vis-root (coarse_upsample only): all filtered_out==0 index
     #    patches (e.g. a complete test set).
     if args.vis_root:
+        all_coarse_dirs = sorted(glob.glob(os.path.join(args.vis_root, "*_coarse")))
         work_cores = []
-        for f in sorted(glob.glob(os.path.join(args.vis_root, "*_coarse"))):
+        for f in all_coarse_dirs:
             core = parse_folder_name(os.path.basename(f.rstrip("/")))
             if core is not None:
                 work_cores.append(core)
         if not work_cores:
+            if all_coarse_dirs:
+                raise RuntimeError(
+                    f"Found {len(all_coarse_dirs)} '*_coarse' folder(s) under {args.vis_root} but NONE "
+                    f"parsed as a valid core (e.g. '{os.path.basename(all_coarse_dirs[0])}'). "
+                    f"Likely the scenario token in the folder name is not recognised by CORE_RE.")
             raise RuntimeError(f"No *_coarse folders found under: {args.vis_root}")
     else:
         if args.pred_source != "coarse_upsample":
