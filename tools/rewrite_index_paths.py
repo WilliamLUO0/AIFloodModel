@@ -21,11 +21,12 @@ from typing import Dict
 
 
 DEFAULT_RULES: Dict[str, str] = {
-    # NeSI -> NIWA (AIFloodModel dataset)
-    "/nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8":
-        "/esi/project/niwa04345/luoz/AIFloodModel/dataset_ds8",
+    # NeSI -> NIWA (AIFloodModel datasets). Prefix is the parent dir, so it covers
+    # every dataset variant under it: dataset_ds2 / ds4 / ds8 / ds16 (and future ones).
+    "/nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel":
+        "/esi/project/niwa04345/luoz/AIFloodModel",
 
-    # NeSI -> NIWA (Gisborne basin results)
+    # NeSI -> NIWA (Gisborne basin results, referenced as src_fine_file in index.csv)
     "/nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/results":
         "/esi/project/niwa04345/luoz/Gisborne_basin/results",
 }

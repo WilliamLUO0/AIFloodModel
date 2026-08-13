@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=pack_dataset_ds8_filtered_thr0p1_min5100_full
+#SBATCH --job-name=pack_dataset_ds2_ds4_ds16
 #SBATCH --account=uoa04425
 #SBATCH --partition=milan
 #SBATCH --nodes=1
@@ -12,26 +12,54 @@
 
 set -euo pipefail
 
-SRC_DIR="/nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full"
-OUT_DIR="/nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/archive2"
-ARCHIVE_NAME="dataset_ds8_filtered_thr0p1_min5100_full.tar.gz"
+# Pack the h-only factor-experiment datasets (ds2/ds4/ds16) to ship NeSI -> NIWA.
+# Run AFTER rewrite_index_paths.py so each dataset already contains its
+# index_with_interval_stats_h_niwa.csv (NIWA-path index used by the *_pbs.yml).
+# ds8 was packed earlier into archive2 (see PROVENANCE below) -- do NOT repack it.
 
-mkdir -p "$OUT_DIR" logs
+BASE="/nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel"
+OUT_DIR="${BASE}/archive3"
 
-echo "Start: $(date)"
-echo "Source: $SRC_DIR"
-echo "Output: $OUT_DIR/$ARCHIVE_NAME"
+DATASETS=(
+  "dataset_ds2_filtered_thr0p1_min25100_full"
+  "dataset_ds4_filtered_thr0p1_min10100_full"
+  "dataset_ds16_filtered_thr0p1_min2100_full"
+)
 
-tar -C "$(dirname "$SRC_DIR")" -cf - "$(basename "$SRC_DIR")" \
-  | pigz -p "${SLURM_CPUS_PER_TASK:-8}" -1 \
-  > "$OUT_DIR/$ARCHIVE_NAME"
+mkdir -p "$OUT_DIR"
 
-echo "Compression finished: $(date)"
+for DS in "${DATASETS[@]}"; do
+  SRC_DIR="${BASE}/${DS}"
+  ARCHIVE_NAME="${DS}.tar.gz"
 
-cd "$OUT_DIR"
-sha256sum "$ARCHIVE_NAME" > "$ARCHIVE_NAME.sha256"
+  echo "============================================================"
+  echo "Start ${DS}: $(date)"
+  echo "Source: $SRC_DIR"
+  echo "Output: $OUT_DIR/$ARCHIVE_NAME"
 
-echo "SHA256:"
-cat "$ARCHIVE_NAME.sha256"
+  tar -C "$BASE" -cf - "$DS" \
+    | pigz -p "${SLURM_CPUS_PER_TASK:-8}" -1 \
+    > "$OUT_DIR/$ARCHIVE_NAME"
 
-echo "Done: $(date)"
+  echo "Compression finished: $(date)"
+
+  ( cd "$OUT_DIR" && sha256sum "$ARCHIVE_NAME" > "$ARCHIVE_NAME.sha256" )
+  echo "SHA256:"
+  cat "$OUT_DIR/$ARCHIVE_NAME.sha256"
+  echo "Done ${DS}: $(date)"
+done
+
+echo "All done: $(date)"
+
+# ============================================================
+# PROVENANCE -- the original ds8 pack (already done, in archive2). Do NOT repack.
+#   SRC_DIR="/nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full"
+#   OUT_DIR="/nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/archive2"
+#   ARCHIVE_NAME="dataset_ds8_filtered_thr0p1_min5100_full.tar.gz"
+#   mkdir -p "$OUT_DIR" logs
+#   tar -C "$(dirname "$SRC_DIR")" -cf - "$(basename "$SRC_DIR")" \
+#     | pigz -p "${SLURM_CPUS_PER_TASK:-8}" -1 \
+#     > "$OUT_DIR/$ARCHIVE_NAME"
+#   cd "$OUT_DIR"
+#   sha256sum "$ARCHIVE_NAME" > "$ARCHIVE_NAME.sha256"
+# ============================================================

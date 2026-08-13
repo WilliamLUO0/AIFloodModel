@@ -1,6 +1,6 @@
 #!/bin/bash
-# Submit the 01 FMPFTV8 evaluation job on the Cyclone Gabrielle real-event test set (Gisborne) (SLURM / NeSI).
-#SBATCH --job-name=eval_01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_v_eval_gabrielle
+# Submit the 01 FMPFTV8 evaluation job on the held-out validation split (20% of the 18 train scenarios) (SLURM / NeSI).
+#SBATCH --job-name=eval_01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_u_eval_val
 #SBATCH --account=uoa04425
 #SBATCH --partition=milan,genoa
 #SBATCH --nodes=1
@@ -31,6 +31,6 @@ export PYTHONUNBUFFERED=1
 nvidia-smi
 
 srun torchrun --nproc_per_node=1 --standalone \
-  basicsr/test_flood_map.py -opt options/test/01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_v_eval_gabrielle.yml \
+  basicsr/test_flood_map.py -opt options/test/01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_u_eval_val.yml \
   --launcher pytorch
 

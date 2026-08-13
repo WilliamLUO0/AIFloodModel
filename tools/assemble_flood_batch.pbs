@@ -1,0 +1,74 @@
+#!/bin/bash
+# Assemble per-patch predictions into full flood-map NetCDFs (NIWA / PBS).
+# PREREQUISITE: the matching test_flood_map eval jobs have written per-patch
+# predictions under results/<evalname>/visualization/. Assembly only makes sense
+# for the COMPLETE test sets; the val split is a scattered 20% subset (not listed).
+# Submit:  qsub tools/assemble_flood_batch.pbs
+#PBS -q a100q
+#PBS -l select=1:ncpus=4:ngpus=1:mem=48GB:nodepool=a100p
+#PBS -l walltime=6:00:00
+#PBS -N assemble_flood_batch_pbs
+#PBS -S /bin/bash
+#PBS -o /esi/project/niwa04345/luoz/AIFloodModel/logs/
+#PBS -e /esi/project/niwa04345/luoz/AIFloodModel/logs/
+#PBS -m abe
+#PBS -M williamlzh00@gmail.com
+
+set -euo pipefail
+
+mkdir -p /esi/project/niwa04345/luoz/AIFloodModel/logs
+cd /esi/project/niwa04345/luoz/AIFloodModel
+
+. $(ls /opt/niwa/profile/spack_* | tail -1)
+spack load cuda@12.8.0
+spack load gcc@12.2.0
+
+. $(ls /opt/niwa/profile/conda_* | tail -1)
+set +u
+conda activate /esi/project/niwa04345/luoz/envs/pft39
+set -u
+
+export PYTHONUNBUFFERED=1
+
+# ===================== cluster paths (NIWA) =====================
+ROOT=/esi/project/niwa04345/luoz/AIFloodModel
+SUF="_pbs"                  # NIWA eval-result dirs carry the _pbs suffix
+TEST_INDEX=index_niwa.csv   # test-dataset index (all vars)
+
+# ===================== EDIT HERE =====================
+VAR=h                  # h (water depth) / u / v (x/y velocity)
+SOURCE=pred            # pred = model output (needs vis-root) | gt = simulated fine (for comparison)
+PER_TS_NPY=0           # 1 to also dump one assembled .npy per timestep
+
+# Which test sets to assemble -- comment out any line you don't want.
+# format:  eval_tag : test-dataset-dir : scenario-token (as in the patch core names)
+TESTSETS=(
+  test2y42h0c:testdataset_2y42h0c:2y_42h_0c
+  test100y42h0c:testdataset_100y42h0c:100y_42h_0c
+  test1000y42h0c:testdataset_1000y42h0c:1000y_42h_0c
+  gabrielle:testdataset_gabrielle:gabrielle
+)
+# =====================================================
+if [[ "$VAR" == "h" ]]; then EXPSUF=""; else EXPSUF="_${VAR}"; fi
+if [[ "$PER_TS_NPY" == "1" ]]; then NPYFLAG="--per-timestep-npy"; else NPYFLAG=""; fi
+
+EXP=01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW${EXPSUF}
+RESULTS=$ROOT/results
+
+for triple in "${TESTSETS[@]}"; do
+  tag="${triple%%:*}"; rest="${triple#*:}"; dsdir="${rest%%:*}"; scen="${rest##*:}"
+  idx="$ROOT/$dsdir/$TEST_INDEX"
+  vis="$RESULTS/${EXP}_eval_${tag}${SUF}/visualization"
+  out="$RESULTS/${EXP}_eval_${tag}${SUF}/assembled"
+  if [[ ! -f "$idx" ]]; then echo "[skip][$tag] no index: $idx"; continue; fi
+  if [[ "$SOURCE" == "pred" && ! -d "$vis" ]]; then echo "[skip][$tag] no vis-root: $vis"; continue; fi
+  echo "[assemble][$tag] var=$VAR source=$SOURCE scenario=$scen"
+  python tools/assemble_flood_map.py \
+    --index-csv "$idx" \
+    --vis-root  "$vis" \
+    --var "$VAR" --scenario "$scen" \
+    --source "$SOURCE" \
+    --out-dir "$out" $NPYFLAG
+done
+
+echo "==================== DONE ===================="

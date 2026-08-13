@@ -33,16 +33,25 @@ export NUMEXPR_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 # ===================== cluster paths (NeSI) =====================
 ROOT=/nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel
 SUF=""                                       # NeSI eval-result dirs carry no _pbs suffix
-TRAIN_INDEX=index_with_interval_stats_h.csv  # val index (per training dataset)
-TEST_INDEX=index.csv                         # test-dataset index
+
+# Variable to aggregate: h (water depth), u or v (x/y water velocity). For u/v the
+# eval classifies wet/dry & bands by |v| (--abs) and the experiment / val-index
+# names carry the _u / _v suffix. VAR=h reproduces the original behaviour exactly.
+VAR=u                                        # <-- set to h / u / v
+if [[ "$VAR" == "h" ]]; then EXPSUF=""; ABS=""; else EXPSUF="_${VAR}"; ABS="--abs"; fi
+
+TRAIN_INDEX=index_with_interval_stats_${VAR}.csv  # val index (per training dataset)
+TEST_INDEX=index.csv                              # test-dataset index (all vars)
 
 # ===================== EDIT HERE: which experiments =====================
 # Main model -> evaluated on val + the three designed 42h test scenarios + Gabrielle.
 MAIN_EXPERIMENTS=(
-  01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW
+  01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW${EXPSUF}
 )
 
 # Ablations / baselines -> evaluated on the VAL set only. Add or remove lines freely.
+# NOTE: these are literal experiment names (NOT auto-suffixed by $VAR). They are
+# h-only ablations, so when VAR=u/v leave this list EMPTY (or list _u/_v models).
 VAL_ONLY_EXPERIMENTS=(
 
 )
@@ -73,6 +82,7 @@ eval_val () {
   python tools/eval_flood.py \
     --index-csv "$idx" \
     --vis-root  "$vis" \
+    --var "$VAR" $ABS \
     --out-json  "$out/eval_val_summary.json" \
     --out-csv-patch    "$out/eval_val_patch.csv" \
     --out-csv-time     "$out/eval_val_time.csv" \
@@ -91,6 +101,7 @@ eval_one_test () {
   python tools/eval_flood.py \
     --index-csv "$idx" \
     --vis-root  "$vis" \
+    --var "$VAR" $ABS \
     --out-json  "$out/eval_${tag}_summary.json" \
     --out-csv-time     "$out/eval_${tag}_time.csv" \
     --out-csv-scenario "$out/eval_${tag}_scenario.csv"
@@ -129,8 +140,9 @@ if [[ "$RUN_BASELINE" == "1" ]]; then
       python tools/eval_flood.py \
         --index-csv "$ROOT/$FILTERED_DS/$TRAIN_INDEX" \
         --vis-root  "$SELVIS" \
+        --var "$VAR" $ABS \
         --pred-source coarse_upsample \
-        --out-json "$BOUT/eval_val_baseline.json"
+        --out-json "$BOUT/eval_val_baseline${EXPSUF}.json"
     else
       echo "[skip][baseline][val] no selector vis-root: $SELVIS"
     fi
@@ -151,9 +163,10 @@ if [[ "$RUN_BASELINE" == "1" ]]; then
       echo "[baseline][$tag]"
       python tools/eval_flood.py \
         --index-csv "$idx" \
+        --var "$VAR" $ABS \
         --pred-source coarse_upsample \
-        --out-json "$BOUT/eval_${tag}_baseline.json" \
-        --out-csv-time "$BOUT/eval_${tag}_baseline_time.csv"
+        --out-json "$BOUT/eval_${tag}_baseline${EXPSUF}.json" \
+        --out-csv-time "$BOUT/eval_${tag}_baseline${EXPSUF}_time.csv"
     else
       echo "[skip][baseline][$tag] no index: $idx"
     fi
