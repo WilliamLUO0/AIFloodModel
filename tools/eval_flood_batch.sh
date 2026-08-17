@@ -67,7 +67,18 @@ RESULTS=$ROOT/results
 # The VAL patches live in the training dataset; noFilter trains on the unfiltered one.
 val_dataset_dir () {
   local exp="$1"
-  if [[ "$exp" == *noFilter* ]]; then echo "dataset_ds8"; else echo "$FILTERED_DS"; fi
+  # noFilter ablation trains on the UNFILTERED ds8.
+  if [[ "$exp" == *noFilter* ]]; then echo "dataset_ds8"; return; fi
+  # Otherwise the SRx{N} tag in the name fixes the downscaling factor -> its dataset
+  # (SRx8<->ds8, SRx2<->ds2, SRx4<->ds4, SRx16<->ds16). To evaluate a factor model
+  # just add it to MAIN_EXPERIMENTS / VAL_ONLY_EXPERIMENTS; the dataset comes from here.
+  case "$exp" in
+    *_SRx2_*)  echo "dataset_ds2_filtered_thr0p1_min25100_full" ;;
+    *_SRx4_*)  echo "dataset_ds4_filtered_thr0p1_min10100_full" ;;
+    *_SRx16_*) echo "dataset_ds16_filtered_thr0p1_min2100_full" ;;
+    *_SRx8_*)  echo "dataset_ds8_filtered_thr0p1_min5100_full" ;;
+    *)         echo "$FILTERED_DS" ;;
+  esac
 }
 
 # ---- model eval on VAL (read *_patch_mean; --vis-root pins the val 20% subset) ----
@@ -130,27 +141,37 @@ if [[ "$RUN_BASELINE" == "1" ]]; then
   echo "==================== BASELINES ===================="
   BOUT="$RESULTS/_baselines"; mkdir -p "$BOUT"
 
-  # VAL baseline: needs a val vis-root to pin the same 20% subset the models saw.
-  # Any evaluated experiment's val vis-root works (same split); we use the first main one.
-  if (( ${#MAIN_EXPERIMENTS[@]} )); then
-    SEL="${MAIN_EXPERIMENTS[0]}"
-    SELVIS="$RESULTS/${SEL}_eval_val${SUF}/visualization"
-    if [[ -d "$SELVIS" ]]; then
-      echo "[baseline][val] selector=$SEL"
+  # VAL baselines: coarse_upsample is model-independent but DATASET-dependent, so run
+  # it once per UNIQUE val dataset among all evaluated experiments (main + val-only),
+  # using one of that dataset's val vis-roots to pin the same val subset. noFilter's
+  # unfiltered dataset_ds8 is handled automatically (it is a distinct dataset).
+  # Output is named per dataset: eval_val_baseline_<ds2|ds4|ds8|ds16><EXPSUF>.json.
+  ALL_EVAL_EXPS=()
+  if (( ${#MAIN_EXPERIMENTS[@]} )); then ALL_EVAL_EXPS+=("${MAIN_EXPERIMENTS[@]}"); fi
+  if (( ${#VAL_ONLY_EXPERIMENTS[@]} )); then ALL_EVAL_EXPS+=("${VAL_ONLY_EXPERIMENTS[@]}"); fi
+  declare -A _BASE_DONE=()
+  if (( ${#ALL_EVAL_EXPS[@]} )); then
+    for exp in "${ALL_EVAL_EXPS[@]}"; do
+      ds=$(val_dataset_dir "$exp")
+      if [[ -n "${_BASE_DONE[$ds]:-}" ]]; then continue; fi
+      selvis="$RESULTS/${exp}_eval_val${SUF}/visualization"
+      if [[ ! -d "$selvis" ]]; then
+        echo "[skip][baseline][val] no val vis-root for selector $exp ($ds)"
+        continue
+      fi
+      _BASE_DONE[$ds]=1
+      dstag="${ds#dataset_}"; dstag="${dstag%%_*}"      # -> ds2 / ds4 / ds8 / ds16
+      echo "[baseline][val] dataset=$ds selector=$exp"
       python tools/eval_flood.py \
-        --index-csv "$ROOT/$FILTERED_DS/$TRAIN_INDEX" \
-        --vis-root  "$SELVIS" \
+        --index-csv "$ROOT/$ds/$TRAIN_INDEX" \
+        --vis-root  "$selvis" \
         --var "$VAR" $ABS \
         --pred-source coarse_upsample \
-        --out-json "$BOUT/eval_val_baseline${EXPSUF}.json"
-    else
-      echo "[skip][baseline][val] no selector vis-root: $SELVIS"
-    fi
+        --out-json "$BOUT/eval_val_baseline_${dstag}${EXPSUF}.json"
+    done
   else
-    echo "[skip][baseline][val] MAIN_EXPERIMENTS empty -> no val-subset selector"
+    echo "[skip][baseline][val] no experiments listed -> no val-subset selector"
   fi
-  # NOTE: noFilter trains on dataset_ds8, so its val baseline differs; add a separate
-  # run against $ROOT/dataset_ds8/$TRAIN_INDEX if you report a noFilter val baseline.
 
   # TEST baselines: no --vis-root (the test index IS the whole set).
   for pair in test2y42h0c:testdataset_2y42h0c \

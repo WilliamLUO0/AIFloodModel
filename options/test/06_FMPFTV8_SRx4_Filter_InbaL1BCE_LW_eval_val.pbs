@@ -1,8 +1,8 @@
 #!/bin/bash
 #PBS -q a100q
-#PBS -l select=1:ncpus=12:ngpus=4:mem=60GB:nodepool=a100p
-#PBS -l walltime=24:00:00
-#PBS -N fmpft_sr16_gpu4_06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW_v_pbs
+#PBS -l select=1:ncpus=4:ngpus=1:mem=24GB:nodepool=a100p
+#PBS -l walltime=6:00:00
+#PBS -N eval_06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW_eval_val_pbs
 #PBS -S /bin/bash
 #PBS -o /esi/project/niwa04345/luoz/AIFloodModel/logs/
 #PBS -e /esi/project/niwa04345/luoz/AIFloodModel/logs/
@@ -33,6 +33,4 @@ export PYTHONUNBUFFERED=1
 
 nvidia-smi
 
-torchrun --nproc_per_node=4 --standalone \
-  basicsr/train_flood_map_v2.py -opt options/train/06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW_v_pbs.yml \
-  --launcher pytorch --auto_resume
+torchrun --nproc_per_node=1 --standalone basicsr/test_flood_map.py -opt options/test/06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW_eval_val_pbs.yml --launcher pytorch

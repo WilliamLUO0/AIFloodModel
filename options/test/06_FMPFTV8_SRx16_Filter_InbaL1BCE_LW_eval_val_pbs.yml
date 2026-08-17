@@ -1,83 +1,27 @@
+# Evaluation config — 01 FMPFTV8 (TG-PFT) main model, final checkpoint, on the held-out validation split (20% of the 18 train scenarios).
+# Flood depth (h), 16x downscaling (128 m -> 8 m). Saves predicted flood maps for
+# global-metric aggregation via tools/eval_flood.py. Inputs normalized with
+# train-set statistics (asinh + z-score, q=90); EMA weights loaded (params_ema).
 # general settings
-# Experiment 06 (downscaling-factor study) - SRx16.
-# Auto-derived from 01 (SRx8); only scale/upscale, patch_fine and the
-# dataset paths differ. Backbone/losses/metrics/sampler are identical.
-# v-velocity (y-direction) counterpart of the 01 main experiment.
-# Same architecture / sampler / loss recipe as the h model, except:
-#   - target_var: v ; coarse aux = [dem] only (NO zs -> no depth leakage) -> coarse_in_chans=2
-#   - normalization: signed asinh+zscore; but wet/interval thresholds use |v|
-#   - ordinal BCE uses abs_target=true (|v| >= tau)
-#   - val metrics are the |v| (velocity) versions (use_abs), no logit_metrics.
-name: 06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW_v_pbs
+name: 06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW_eval_val_pbs
 model_type: FMSRModel
 scale: 16
-num_gpu: 4
+num_gpu: 1
 manual_seed: 61
 
-find_unused_parameters: true
-
-# dataset and data loader settings
+# dataset and data loader lsettings
 datasets:
-  train:
-    name: FloodMapSR-Train-v
-    type: PairedFloodMapDataset
-    dataroot: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds16_filtered_thr0p1_min2100_full
-    index_csv: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds16_filtered_thr0p1_min2100_full/index_with_interval_stats_v_niwa.csv
-    io_backend:
-      type: disk
-
-    phase: train
-    target_var: v
-    aux_vars: [dem]
-    scale: 16
-    patch_fine: 1024
-    patch_coarse: 64
-    use_hflip: true
-    use_rot: true
-
-    split_cfg:
-      by: scenario
-      val_ratio: 0.2
-      seed: 61
-      split_stats_json: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds16_filtered_thr0p1_min2100_full/split_stats_v.json
-    stats:
-      calculate_if_missing: false
-      use_clip_coarse: false
-      use_clip_static: false
-      norm: zscore
-      transform: asinh
-    sampler:
-      type: interval_balanced
-      score_mode: percentile_band
-      summary_json: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds16_filtered_thr0p1_min2100_full/patch_interval_summary_v.json
-      percentile_source: positive
-      low_percentile: p75
-      high_percentile: p99
-      slight_alpha: 4.0
-      severe_alpha: 2.0
-      extreme_alpha: 2.0
-      base_weight: 1.0
-      max_weight: 10.0
-
-    # data loader
-    num_worker_per_gpu: 8
-    batch_size_per_gpu: 4
-    dataset_enlarge_ratio: 1
-    prefetch_mode: cuda
-    pin_memory: True
-    persistent_workers: True
-
   val_1:
-    name: FloodMapSR-Val-v
+    name: FloodMapSR-Val-h
     type: PairedFloodMapDataset
     dataroot: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds16_filtered_thr0p1_min2100_full
-    index_csv: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds16_filtered_thr0p1_min2100_full/index_with_interval_stats_v_niwa.csv
+    index_csv: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds16_filtered_thr0p1_min2100_full/index_with_interval_stats_h_niwa.csv
     io_backend:
       type: disk
 
     phase: val
-    target_var: v
-    aux_vars: [dem]
+    target_var: h
+    aux_vars: [zs, dem]
     scale: 16
     patch_fine: 1024
     patch_coarse: 64
@@ -86,19 +30,20 @@ datasets:
       by: scenario
       val_ratio: 0.2
       seed: 61
-      split_stats_json: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds16_filtered_thr0p1_min2100_full/split_stats_v.json
+      split_stats_json: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds16_filtered_thr0p1_min2100_full/split_stats_h_asinh.json
     stats:
       calculate_if_missing: false
       use_clip_coarse: false
       use_clip_static: false
       norm: zscore
       transform: asinh
+      h_asinh_q: 90
 
 # network structures
 network_g:
   type: FloodMapPFTV8
   upscale: 16
-  coarse_in_chans: 2
+  coarse_in_chans: 3
   static_in_chans: 7
   flood_map_size: 64
   use_shallow_act: true
@@ -124,76 +69,18 @@ network_g:
 
 # path
 path:
-  pretrain_network_g: ~
-  strict_load_g: true
-  resume_state: ~
-
-# training settings
-train:
-  ema_decay: 0.999
-  optim_g:
-    type: AdamW
-    lr: !!float 5e-4
-    weight_decay: 0
-    betas: [0.9, 0.99]
-
-  scheduler:
-    type: MultiStepLR
-    milestones: [150000, 300000, 500000, 700000, 900000]
-    gamma: 0.5
-
-  total_iter: 1000000
-  warmup_iter: 40000
-
-  # losses
-  pixel_opt:
-    type: MaskWeightedL1Loss
-    loss_weight: 1.0
-    tau_flood_m: 0.1
-    tau_is_physical: true
-    var: 'v'
-    transform: asinh
-    norm: zscore
-    stats_json: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds16_filtered_thr0p1_min2100_full/split_stats_v.json
-    use_wet_weight: false
-    wet_lambda: 0.0
-    use_depth_weight: false
-    depth_mu: 0.0
-    depth_mode: linear
-    depth_scale: 1.0
-    weight_max: 10.0
-    ignore_zero_mask: true
-    eps: 1.0e-12
-  ordinal_opt:
-    type: MaskOrdinalBCELoss
-    loss_weight: 0.2
-    tau1_m: 0.1
-    tau2_m: 0.5
-    tau3_m: 1.0
-    tau_is_physical: true
-    abs_target: true
-    var: 'v'
-    transform: asinh
-    norm: zscore
-    stats_json: /esi/project/niwa04345/luoz/AIFloodModel/dataset_ds16_filtered_thr0p1_min2100_full/split_stats_v.json
-    use_pos_weight: true
-    pos_weight_min: 1.0
-    pos_weight_max: 10.0
-    focal_gamma: 0.0
-    alpha_pos: 0.75
-    w1: 1.0
-    w2: 1.0
-    w3: 1.0
-    ignore_zero_mask: true
-    eps: 1.0e-12
+  pretrain_network_g: /esi/project/niwa04345/luoz/AIFloodModel/experiments/06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW_pbs/models/net_g_1000000.pth
+  strict_load_g: yes
+  # load the EMA weights into net_g (test mode never builds net_g_ema, and
+  # resume_state is ignored outside training) so eval matches the EMA-based
+  # validation numbers seen during training.
+  param_key_g: params_ema
 
 # validation settings
 val:
-  val_freq: !!float 4e4
-  save_flood_map: false
+  save_flood_map: true
+  suffix: ~
 
-  # RMSE/NSE on signed velocity; every threshold/band/classification
-  # metric uses |v| via use_abs. No logit_metrics for u/v.
   metrics:
     rmse:
       type: cal_rmse_pt
@@ -203,14 +90,12 @@ val:
       type: cal_rmse_threshold_pt
       reduction: mean
       threshold: 0.1
-      use_abs: true
       better: lower
     rmse_thr_tol:
       type: cal_rmse_threshold_tolerant_pt
       reduction: mean
       threshold: 0.1
       abs_tol: 0.02
-      use_abs: true
       better: lower
     rmse_all:
       type: cal_rmse_conditional_pt
@@ -222,7 +107,6 @@ val:
       reduction: none
       cond_on_target_ge: 0.0
       cond_on_target_lt: 0.1
-      use_abs: true
       better: lower
     rmse_nonflood01_tol:
       type: cal_rmse_conditional_pt
@@ -230,14 +114,12 @@ val:
       cond_on_target_ge: 0.0
       cond_on_target_lt: 0.1
       abs_tol: 0.02
-      use_abs: true
       better: lower
     rmse_slight01_05:
       type: cal_rmse_conditional_pt
       reduction: none
       cond_on_target_ge: 0.1
       cond_on_target_lt: 0.5
-      use_abs: true
       better: lower
     rmse_slight01_05_tol:
       type: cal_rmse_conditional_pt
@@ -245,14 +127,12 @@ val:
       cond_on_target_ge: 0.1
       cond_on_target_lt: 0.5
       abs_tol: 0.02
-      use_abs: true
       better: lower
     rmse_severe05_1:
       type: cal_rmse_conditional_pt
       reduction: none
       cond_on_target_ge: 0.5
       cond_on_target_lt: 1
-      use_abs: true
       better: lower
     rmse_severe05_1_tol:
       type: cal_rmse_conditional_pt
@@ -260,14 +140,12 @@ val:
       cond_on_target_ge: 0.5
       cond_on_target_lt: 1
       abs_tol: 0.02
-      use_abs: true
       better: lower
     rmse_extreme1:
       type: cal_rmse_conditional_pt
       reduction: none
       cond_on_target_ge: 1
       cond_on_target_lt: ~
-      use_abs: true
       better: lower
     rmse_extreme1_tol:
       type: cal_rmse_conditional_pt
@@ -275,7 +153,6 @@ val:
       cond_on_target_ge: 1
       cond_on_target_lt: ~
       abs_tol: 0.02
-      use_abs: true
       better: lower
 
     nse:
@@ -296,7 +173,6 @@ val:
       abs_tol_per_px: 1.0e-4
       lower_bound: -5.0
       threshold: 0.1
-      use_abs: true
       better: higher
     nse_thr01_tol_safe:
       type: cal_nse_threshold_tolerant_pt_safe
@@ -306,7 +182,6 @@ val:
       lower_bound: -5.0
       threshold: 0.1
       abs_tol: 0.02
-      use_abs: true
       better: higher
 
     csi_thr01:
@@ -314,7 +189,6 @@ val:
       threshold: 0.1
       reduction: mean
       empty_as_nan: true
-      use_abs: true
       better: higher
     csi_thr01_tol:
       type: cal_csi_tolerant_pt
@@ -322,7 +196,6 @@ val:
       reduction: mean
       abs_tol: 0.02
       empty_as_nan: true
-      use_abs: true
       better: higher
 
     precision_thr01:
@@ -330,7 +203,6 @@ val:
       threshold: 0.1
       reduction: mean
       empty_as_nan: true
-      use_abs: true
       better: higher
     precision_thr01_tol:
       type: cal_precision_tolerant_pt
@@ -338,7 +210,6 @@ val:
       reduction: mean
       empty_as_nan: true
       abs_tol: 0.02
-      use_abs: true
       better: higher
     precision_nonflood01:
       type: cal_precision_band_pt
@@ -346,7 +217,6 @@ val:
       band_lt: 0.1
       reduction: mean
       empty_as_nan: true
-      use_abs: true
       better: higher
     precision_slight01_05:
       type: cal_precision_band_pt
@@ -354,7 +224,6 @@ val:
       band_lt: 0.5
       reduction: mean
       empty_as_nan: true
-      use_abs: true
       better: higher
     precision_severe05_1:
       type: cal_precision_band_pt
@@ -362,7 +231,6 @@ val:
       band_lt: 1
       reduction: mean
       empty_as_nan: true
-      use_abs: true
       better: higher
     precision_extreme1:
       type: cal_precision_band_pt
@@ -370,7 +238,6 @@ val:
       band_lt: ~
       reduction: mean
       empty_as_nan: true
-      use_abs: true
       better: higher
 
     recall_thr01:
@@ -378,7 +245,6 @@ val:
       threshold: 0.1
       reduction: mean
       empty_as_nan: true
-      use_abs: true
       better: higher
     recall_thr01_tol:
       type: cal_recall_tolerant_pt
@@ -386,7 +252,6 @@ val:
       reduction: mean
       empty_as_nan: true
       abs_tol: 0.02
-      use_abs: true
       better: higher
     recall_nonflood01:
       type: cal_recall_band_pt
@@ -394,7 +259,6 @@ val:
       band_lt: 0.1
       reduction: mean
       empty_as_nan: true
-      use_abs: true
       better: higher
     recall_slight01_05:
       type: cal_recall_band_pt
@@ -402,7 +266,6 @@ val:
       band_lt: 0.5
       reduction: mean
       empty_as_nan: true
-      use_abs: true
       better: higher
     recall_severe05_1:
       type: cal_recall_band_pt
@@ -410,7 +273,6 @@ val:
       band_lt: 1
       reduction: mean
       empty_as_nan: true
-      use_abs: true
       better: higher
     recall_extreme1:
       type: cal_recall_band_pt
@@ -418,37 +280,176 @@ val:
       band_lt: ~
       reduction: mean
       empty_as_nan: true
-      use_abs: true
       better: higher
 
     target_prevalence:
       type: cal_prev_t_pt
       threshold: 0.1
       reduction: mean
-      use_abs: true
     pred_prevalence:
       type: cal_prev_p_pt
       threshold: 0.1
       reduction: mean
-      use_abs: true
 
-    accuracy_thr01:
-      type: cal_accuracy_pt
-      threshold: 0.1
+  logit_metrics:
+    csi_tau01:
+      type: cal_logit_csi_pt
+      channel: 0
+      target_threshold: 0.1
+      prob_threshold: 0.5
       reduction: mean
-      use_abs: true
+      empty_as_nan: true
+      better: higher
+    precision_tau01:
+      type: cal_logit_precision_pt
+      channel: 0
+      target_threshold: 0.1
+      prob_threshold: 0.5
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+    recall_tau01:
+      type: cal_logit_recall_pt
+      channel: 0
+      target_threshold: 0.1
+      prob_threshold: 0.5
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+    pred_prevalence_tau01:
+      type: cal_logit_prev_p_pt
+      channel: 0
+      prob_threshold: 0.5
+      reduction: mean
+    target_prevalence_tau01:
+      type: cal_logit_prev_t_pt
+      target_threshold: 0.1
+      reduction: mean
+
+    csi_tau05:
+      type: cal_logit_csi_pt
+      channel: 1
+      target_threshold: 0.5
+      prob_threshold: 0.5
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+    precision_tau05:
+      type: cal_logit_precision_pt
+      channel: 1
+      target_threshold: 0.5
+      prob_threshold: 0.5
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+    recall_tau05:
+      type: cal_logit_recall_pt
+      channel: 1
+      target_threshold: 0.5
+      prob_threshold: 0.5
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+    pred_prevalence_tau05:
+      type: cal_logit_prev_p_pt
+      channel: 1
+      prob_threshold: 0.5
+      reduction: mean
+    target_prevalence_tau05:
+      type: cal_logit_prev_t_pt
+      target_threshold: 0.5
+      reduction: mean
+
+    csi_tau10:
+      type: cal_logit_csi_pt
+      channel: 2
+      target_threshold: 1.0
+      prob_threshold: 0.5
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+    precision_tau10:
+      type: cal_logit_precision_pt
+      channel: 2
+      target_threshold: 1.0
+      prob_threshold: 0.5
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+    recall_tau10:
+      type: cal_logit_recall_pt
+      channel: 2
+      target_threshold: 1.0
+      prob_threshold: 0.5
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+    pred_prevalence_tau10:
+      type: cal_logit_prev_p_pt
+      channel: 2
+      prob_threshold: 0.5
+      reduction: mean
+    target_prevalence_tau10:
+      type: cal_logit_prev_t_pt
+      target_threshold: 1.0
+      reduction: mean
+
+    precision_nonflood01:
+      type: cal_logit_precision_band_pt
+      interval: nonflood
+      prob_threshold: 0.5
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+    recall_nonflood01:
+      type: cal_logit_recall_band_pt
+      interval: nonflood
+      prob_threshold: 0.5
+      reduction: mean
+      empty_as_nan: true
       better: higher
 
-# logging settings
-logger:
-  print_freq: 100
-  save_checkpoint_freq: !!float 5e3
-  use_tb_logger: true
-  wandb:
-    project: ~
-    resume_id: ~
+    precision_slight01_05:
+      type: cal_logit_precision_band_pt
+      interval: slight
+      prob_threshold: 0.5
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+    recall_slight01_05:
+      type: cal_logit_recall_band_pt
+      interval: slight
+      prob_threshold: 0.5
+      reduction: mean
+      empty_as_nan: true
+      better: higher
 
-# dist training settings
-dist_params:
-  backend: nccl
-  port: 29500
+    precision_severe05_1:
+      type: cal_logit_precision_band_pt
+      interval: severe
+      prob_threshold: 0.5
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+    recall_severe05_1:
+      type: cal_logit_recall_band_pt
+      interval: severe
+      prob_threshold: 0.5
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+
+    precision_extreme1:
+      type: cal_logit_precision_band_pt
+      interval: extreme
+      prob_threshold: 0.5
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+    recall_extreme1:
+      type: cal_logit_recall_band_pt
+      interval: extreme
+      prob_threshold: 0.5
+      reduction: mean
+      empty_as_nan: true
+      better: higher
