@@ -1,0 +1,60 @@
+#!/bin/bash
+# Unpack the three factor-experiment datasets (ds2/ds4/ds16) on the NIWA HPC.
+# The three <dataset>.tar.gz were uploaded to /esi/project/niwa04345/luoz/AIFloodModel/.
+# Each tarball's top-level dir is dataset_ds{F}_..._full/, so extracting IN PLACE here
+# lands the datasets at .../AIFloodModel/dataset_ds{F}_..._full/ -- exactly the paths
+# the *_niwa.csv index and the *_pbs.yml dataroot point to.
+# Submit:  qsub tools/unpack_dataset.pbs
+#
+# This is a CPU/IO-only job (tar + gzip); no GPU -> runs on the longq CPU queue.
+# NOTE: the select line has NO nodepool= (a100p is the GPU pool). If longq needs a
+# specific CPU nodepool on NIWA, qsub rejects this immediately -> add `:nodepool=<cpu_pool>`.
+# walltime 24h: factor 2 has a huge number of small files, so untar is slow.
+#PBS -q longq
+#PBS -l select=1:ncpus=4:mem=32GB
+#PBS -l walltime=24:00:00
+#PBS -N unpack_dataset_ds2_ds4_ds16_pbs
+#PBS -S /bin/bash
+#PBS -o /esi/project/niwa04345/luoz/AIFloodModel/logs/
+#PBS -e /esi/project/niwa04345/luoz/AIFloodModel/logs/
+#PBS -m abe
+#PBS -M williamlzh00@gmail.com
+
+set -euo pipefail
+
+BASE=/esi/project/niwa04345/luoz/AIFloodModel
+mkdir -p "$BASE/logs"
+cd "$BASE"
+
+DATASETS=(
+  dataset_ds2_filtered_thr0p1_min25100_full
+  dataset_ds4_filtered_thr0p1_min10100_full
+  dataset_ds16_filtered_thr0p1_min2100_full
+)
+
+for DS in "${DATASETS[@]}"; do
+  echo "============================================================"
+  echo "[$(date)] ${DS}"
+  TARBALL="${DS}.tar.gz"
+
+  if [[ ! -f "${TARBALL}" ]]; then
+    echo "[error] ${TARBALL} not found in ${BASE}"; exit 1
+  fi
+
+  # Integrity check first (if the .sha256 was uploaded alongside the tarball).
+  if [[ -f "${TARBALL}.sha256" ]]; then
+    echo "[verify] sha256 -c ${TARBALL}.sha256"
+    sha256sum -c "${TARBALL}.sha256"
+  else
+    echo "[warn] ${TARBALL}.sha256 not found -> skipping integrity check"
+  fi
+
+  echo "[extract] ${TARBALL} -> ${BASE}/${DS}/"
+  tar -xzf "${TARBALL}"
+  echo "[done] $(date)  ->  $(ls -d "${BASE}/${DS}" 2>/dev/null || echo MISSING)"
+done
+
+echo "============================================================"
+echo "[all done] $(date)"
+echo "Extracted dataset dirs:"
+ls -d "${BASE}"/dataset_ds2_*_full "${BASE}"/dataset_ds4_*_full "${BASE}"/dataset_ds16_*_full 2>/dev/null || true
