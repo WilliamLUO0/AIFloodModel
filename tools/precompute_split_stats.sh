@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=precompute_split_stats_ds2_ds4_ds16
+#SBATCH --job-name=precompute_split_stats_train_all
 #SBATCH --account=uoa04425
 #SBATCH --partition=milan,genoa
 #SBATCH --nodes=1
@@ -24,18 +24,20 @@ export OPENBLAS_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 export MKL_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 export NUMEXPR_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 
-# Precompute split_stats for the new downscaling-factor datasets. Run AFTER
-# make_patches, and BEFORE precompute_patch_interval_stats.
-# Per dataset: h (scope=all) MUST run first (creates the split); u and v then
-# --reuse_split_from it. The wet-scope h variant is intentionally NOT computed
-# (unused by the yml; interval-stats only needs the split, which is identical).
+# Precompute split_stats for the FOUR training datasets. Run AFTER make_patches,
+# and BEFORE precompute_patch_interval_stats. Test sets do NOT need split_stats
+# (they are not split into train/val; eval uses the training dataset's stats).
+# Per dataset: h (asinh, scope=all) runs first and CREATES the train/val split;
+# ds8 additionally runs u and v with --reuse_split_from so they share that split.
+# ds2/4/16 are h-only. (The wet-scope h variant is unused and not computed.)
 
 BASE_OUT="/nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel"
 
 DATASETS=(
-  "dataset_ds2_filtered_thr0p1_min25100_full"
-  "dataset_ds4_filtered_thr0p1_min10100_full"
+  "dataset_ds8_filtered_thr0p1_min5100_full"
   "dataset_ds16_filtered_thr0p1_min2100_full"
+  "dataset_ds4_filtered_thr0p1_min10100_full"
+  "dataset_ds2_filtered_thr0p1_min25100_full"
 )
 
 for DS in "${DATASETS[@]}"; do
@@ -61,11 +63,23 @@ for DS in "${DATASETS[@]}"; do
     --by scenario --val_ratio 0.2 --seed 61 \
     --bins 8192
 
-  # 2/3) u and v split_stats are SKIPPED (h-only factor experiment; u/v models
-  # won't be trained, and make_patches now generates h patches only). If u/v is
-  # ever needed for a factor, first make its u/v patches, then run the u/v steps
-  # (--target_var u/v --reuse_split_from split_stats_h_asinh.json --uv_tau 0.1
-  # --compute_uv_intervals ...); see the PROVENANCE block below / git history.
+  # 2/3) ds8 only: u and v reuse h's train/val split. ds2/4/16 are h-only -> skip.
+  if [[ "$DS" == *ds8* ]]; then
+    for UV in u v; do
+      echo "[info] split_stats ${UV} for ${DS}"
+      python tools/precompute_split_stats.py \
+        --index_csv "${DSDIR}/index.csv" \
+        --root "${DSDIR}" \
+        --out_json "${DSDIR}/split_stats_${UV}.json" \
+        --target_var "${UV}" \
+        --reuse_split_from "${DSDIR}/split_stats_h_asinh.json" \
+        --uv_tau 0.1 \
+        --compute_uv_intervals \
+        --uv_interval_thresholds 0.1,0.5,1.0 \
+        --by scenario --val_ratio 0.2 --seed 61 \
+        --bins 8192
+    done
+  fi
 done
 
 echo "[done] split_stats finished for: ${DATASETS[*]}"

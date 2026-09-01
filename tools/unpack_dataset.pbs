@@ -1,19 +1,27 @@
 #!/bin/bash
-# Unpack the three factor-experiment datasets (ds2/ds4/ds16) on the NIWA HPC.
-# The three <dataset>.tar.gz were uploaded to /esi/project/niwa04345/luoz/AIFloodModel/.
-# Each tarball's top-level dir is dataset_ds{F}_..._full/, so extracting IN PLACE here
-# lands the datasets at .../AIFloodModel/dataset_ds{F}_..._full/ -- exactly the paths
-# the *_niwa.csv index and the *_pbs.yml dataroot point to.
+# Unpack datasets ONE-BY-ONE on the NIWA HPC. Upload each <dataset>.tar.gz (and
+# its .sha256) to  /esi/project/niwa04345/luoz/AIFloodModel/archive_dataset/ .
+# Each tarball's top-level dir is <dataset>/, so extracting into $BASE lands it at
+# $BASE/<dataset>/ -- exactly the paths the *_niwa.csv index and *_pbs.yml expect.
+#
+# Per dataset:
+#   1. sha256 -c BEFORE extracting (refuses to extract a corrupted/incomplete tarball);
+#   2. extract;
+#   3. a one-line [metrics] record of the EXTRACTED dir, using the SAME formula as
+#      pack_dataset.sh -- diff the pack log against this unpack log and any dataset
+#      that lost files or changed size in transit stands out immediately.
+#
+# Edit DATASETS to unpack a subset (e.g. only the few already transferred), then
+# run again later for the rest. Keep this list in sync with pack_dataset.sh.
+#
 # Submit:  qsub tools/unpack_dataset.pbs
 #
-# This is a CPU/IO-only job (tar + gzip); no GPU -> runs on the longq CPU queue.
-# NOTE: the select line has NO nodepool= (a100p is the GPU pool). If longq needs a
-# specific CPU nodepool on NIWA, qsub rejects this immediately -> add `:nodepool=<cpu_pool>`.
-# walltime 24h: factor 2 has a huge number of small files, so untar is slow.
+# CPU/IO-only (tar + gunzip); no GPU -> longq CPU queue. If longq needs a specific
+# CPU nodepool on NIWA, add `:nodepool=<cpu_pool>` to the select line.
 #PBS -q longq
 #PBS -l select=1:ncpus=4:mem=32GB
 #PBS -l walltime=24:00:00
-#PBS -N unpack_dataset_ds2_ds4_ds16_pbs
+#PBS -N unpack_dataset
 #PBS -S /bin/bash
 #PBS -o /esi/project/niwa04345/luoz/AIFloodModel/logs/
 #PBS -e /esi/project/niwa04345/luoz/AIFloodModel/logs/
@@ -23,38 +31,74 @@
 set -euo pipefail
 
 BASE=/esi/project/niwa04345/luoz/AIFloodModel
+ARCHIVE_DIR="${BASE}/archive_dataset"
 mkdir -p "$BASE/logs"
 cd "$BASE"
 
+# ===================== EDIT HERE: which datasets to unpack =====================
 DATASETS=(
-  dataset_ds2_filtered_thr0p1_min25100_full
-  dataset_ds4_filtered_thr0p1_min10100_full
+  # --- training (4) ---
+  dataset_ds8_filtered_thr0p1_min5100_full
   dataset_ds16_filtered_thr0p1_min2100_full
+  dataset_ds4_filtered_thr0p1_min10100_full
+  dataset_ds2_filtered_thr0p1_min25100_full
+  # --- test: factor-8 main-model suite ---
+  testdataset_2y42h0c
+  testdataset_5y42h0c
+  testdataset_10y42h0c
+  testdataset_50y42h0c
+  testdataset_100y42h0c
+  testdataset_1000y42h0c
+  # --- test: downscaling-factor ablation (100y only) ---
+  testdataset_100y42h0c_ds2
+  testdataset_100y42h0c_ds4
+  testdataset_100y42h0c_ds16
+  # --- deferred: gabrielle (uncomment once built/shipped) ---
+  # testdataset_gabrielle
+  # testdataset_gabrielle_ds2
+  # testdataset_gabrielle_ds4
+  # testdataset_gabrielle_ds16
 )
+# ==============================================================================
+
+# Same metric commands as pack_dataset.sh (du -sh --apparent-size + find counts),
+# so the two logs line up for a direct diff.
+report_metrics() {
+  local dir="$1"
+  local size files entries
+  size=$(du -sh --apparent-size "$dir" | awk '{print $1}')   # apparent size (human)
+  files=$(find "$dir" -type f | wc -l)                       # number of files
+  entries=$(find "$dir" | wc -l)                             # files + dirs
+  echo "[metrics] DS=$(basename "$dir") apparent_size=${size} files=${files} entries=${entries}"
+}
 
 for DS in "${DATASETS[@]}"; do
   echo "============================================================"
-  echo "[$(date)] ${DS}"
-  TARBALL="${DS}.tar.gz"
+  echo "[$(date)] UNPACK ${DS}"
+  TARBALL="${ARCHIVE_DIR}/${DS}.tar.gz"
 
   if [[ ! -f "${TARBALL}" ]]; then
-    echo "[error] ${TARBALL} not found in ${BASE}"; exit 1
+    echo "[error] ${TARBALL} not found (upload it to ${ARCHIVE_DIR}/)" >&2
+    exit 1
   fi
 
-  # Integrity check first (if the .sha256 was uploaded alongside the tarball).
+  # 1) integrity check BEFORE extracting
   if [[ -f "${TARBALL}.sha256" ]]; then
-    echo "[verify] sha256 -c ${TARBALL}.sha256"
-    sha256sum -c "${TARBALL}.sha256"
+    echo "[verify] sha256 -c ${DS}.tar.gz.sha256"
+    ( cd "${ARCHIVE_DIR}" && sha256sum -c "${DS}.tar.gz.sha256" )
   else
-    echo "[warn] ${TARBALL}.sha256 not found -> skipping integrity check"
+    echo "[error] ${TARBALL}.sha256 not found -> refusing to extract unverified tarball" >&2
+    exit 1
   fi
 
+  # 2) extract (top-level dir is ${DS}/, lands at ${BASE}/${DS}/)
   echo "[extract] ${TARBALL} -> ${BASE}/${DS}/"
   tar -xzf "${TARBALL}"
-  echo "[done] $(date)  ->  $(ls -d "${BASE}/${DS}" 2>/dev/null || echo MISSING)"
+
+  # 3) extracted-dir metrics (diff against the NeSI pack log)
+  report_metrics "${BASE}/${DS}"
+  echo "[$(date)] done ${DS}"
 done
 
 echo "============================================================"
-echo "[all done] $(date)"
-echo "Extracted dataset dirs:"
-ls -d "${BASE}"/dataset_ds2_*_full "${BASE}"/dataset_ds4_*_full "${BASE}"/dataset_ds16_*_full 2>/dev/null || true
+echo "[all done] $(date)  unpacked ${#DATASETS[@]} datasets into ${BASE}"

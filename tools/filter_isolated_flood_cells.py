@@ -33,6 +33,97 @@ def get_time_dim(da):
     return None
 
 
+# --------------------------------------------------------------------------- #
+# Multi-scale merge (folded in from the former merge_multiscale / merge_grid /
+# merge_multi-scale_rev tools).
+#
+# BG-Flood dx8 runs use adaptive mesh refinement, so their BGout.nc stores
+# several resolution levels (variables suffixed _P<level> / _N<level>). Before
+# the isolated-cell filter can run on the fine target, that adaptive output must
+# be flattened onto the finest grid, one file per timestep
+# (per_timestep_merged/merged_series_tXXXX.nc). This used to be a separate step;
+# it now runs inside the filter when --merge-from is given (see main()).
+#
+# Only the per-timestep merge (former "Stage 1") is kept: nothing downstream
+# reads the old stacked BGout_merged.nc, so it is no longer produced.
+# --------------------------------------------------------------------------- #
+def merge_all_reso(input_nc_path, variables, num_time_steps, name_output):
+    """
+    Project every refinement level of ONE timestep onto the finest grid.
+
+    Ported from merge_multiscale.py (the isel-time variant, exact integer
+    timestep indexing). The finest level seeds the output; each coarser level is
+    nearest-interpolated onto the finest grid to fill the un-refined regions.
+    """
+    ds = xr.open_dataset(input_nc_path)
+    maxlvl = int(ds.maxlevel)
+    minlvl = int(ds.minlevel)
+
+    my_var_type = list(variables)
+
+    # seed with the finest (max) level
+    lvl = maxlvl
+    suffix = '_' + ('N' if lvl < 0 else 'P') + str(abs(lvl))
+    do = ds.isel(time=int(num_time_steps))
+    dict_name = {v + suffix: v for v in my_var_type}
+    dict_name.update({c + suffix: c for c in ['xx', 'yy']})
+    do = do.rename(dict_name)
+    new = do[my_var_type]
+
+    # project every coarser level onto the finest grid
+    for lvl in range(minlvl, maxlvl):
+        suffix = '_' + ('N' if lvl < 0 else 'P') + str(abs(lvl))
+        do = ds.isel(time=int(num_time_steps))
+        dict_name = {v + suffix: v for v in my_var_type}
+        dict_name.update({c + suffix: c for c in ['xx', 'yy']})
+        do = do.rename(dict_name)
+        for var in my_var_type:
+            dint = do[var].interp(xx=new["xx"], yy=new["yy"], method="nearest")
+            new = xr.merge([new, dint], compat="no_conflicts")
+
+    new.to_netcdf(name_output)
+    ds.close()
+    return name_output
+
+
+def merge_multiscale_to_perdir(
+    input_nc,
+    out_dir,
+    variables=("zs", "u", "v", "h"),
+    overwrite=False,
+    limit=None,
+):
+    """
+    Merge an adaptive-mesh BGout.nc into per-timestep files under out_dir.
+
+    Produces out_dir/merged_series_t{ti:04d}.nc for every timestep, which is
+    exactly what filter_directory() consumes. Existing files are skipped unless
+    overwrite=True, so re-running is cheap/idempotent.
+    """
+    os.makedirs(out_dir, exist_ok=True)
+
+    ds0 = xr.open_dataset(input_nc)
+    nt_total = int(ds0.sizes.get("time", ds0["time"].sizes["time"]))
+    ds0.close()
+
+    nt = min(nt_total, limit) if limit is not None else nt_total
+    print(f"[merge] {input_nc} -> {out_dir}  ({nt} timesteps, vars={list(variables)})")
+
+    for ti in range(nt):
+        out_path = os.path.join(out_dir, f"merged_series_t{ti:04d}.nc")
+        if (not overwrite) and os.path.exists(out_path):
+            print(f"[merge][skip] exists: {out_path}")
+            continue
+        print(f"[merge] timestep {ti}/{nt - 1} -> {out_path}", flush=True)
+        merge_all_reso(
+            input_nc_path=input_nc,
+            variables=list(variables),
+            num_time_steps=ti,
+            name_output=out_path,
+        )
+    print(f"[merge] done: {out_dir}")
+
+
 def build_keep_mask(h2d, threshold, min_patch_size, connectivity=8):
     """
     Build keep mask from one 2D water depth map.
@@ -310,9 +401,36 @@ def main():
 
     parser.add_argument("--overwrite", action="store_true")
 
+    # Multi-scale merge (dx8 adaptive-mesh runs). When set with --input-dir, the
+    # adaptive BGout.nc is flattened onto the finest grid into --input-dir
+    # (per_timestep_merged) BEFORE filtering, replacing the old separate merge step.
+    parser.add_argument(
+        "--merge-from", default=None,
+        help="Adaptive-mesh BGout.nc (e.g. .../dx8/BGout.nc) to merge onto the finest "
+             "grid first. Only valid with --input-dir; writes merged_series_tXXXX.nc "
+             "into --input-dir, then filters them.",
+    )
+    parser.add_argument(
+        "--merge-vars", nargs="+", default=["zs", "u", "v", "h"],
+        help="Variables to merge (default: zs u v h).",
+    )
+    parser.add_argument(
+        "--merge-overwrite", action="store_true",
+        help="Re-merge even if per-timestep merged files already exist (merge is "
+             "expensive, so by default existing merged files are kept; --overwrite "
+             "alone only re-runs the filter, not the merge).",
+    )
+    parser.add_argument(
+        "--merge-limit", type=int, default=None,
+        help="Only merge the first N timesteps (debugging).",
+    )
+
     args = parser.parse_args()
 
     remove_below_threshold = not args.keep_below_threshold
+
+    if args.merge_from is not None and args.input_nc is not None:
+        raise ValueError("--merge-from is only valid with --input-dir (dx8 dir mode), not --input-nc")
 
     if args.input_nc is not None:
         if args.output_nc is None:
@@ -331,6 +449,17 @@ def main():
     else:
         if args.output_dir is None:
             raise ValueError("--output-dir is required when using --input-dir")
+
+        # dx8 adaptive-mesh: merge BGout.nc onto the finest grid into --input-dir
+        # (per_timestep_merged) before filtering. Folded in from merge_multiscale.
+        if args.merge_from is not None:
+            merge_multiscale_to_perdir(
+                input_nc=args.merge_from,
+                out_dir=args.input_dir,
+                variables=args.merge_vars,
+                overwrite=args.merge_overwrite,
+                limit=args.merge_limit,
+            )
 
         filter_directory(
             input_dir=args.input_dir,

@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=precompute_patch_interval_stats_ds2_ds4_ds16
+#SBATCH --job-name=precompute_patch_interval_stats_train_all
 #SBATCH --account=uoa04425
 #SBATCH --partition=milan,genoa
 #SBATCH --nodes=1
@@ -24,18 +24,21 @@ export OPENBLAS_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 export MKL_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 export NUMEXPR_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 
-# Precompute per-patch interval stats for the new datasets. Run AFTER
-# precompute_split_stats (needs the split_stats_*.json for the train split).
-# --split-stats-json is used ONLY to select the train split for the JSON summary
-# (h uses split_stats_h_asinh.json, u/v use their own; all share the same split).
+# Precompute per-patch interval stats for the FOUR training datasets. Run AFTER
+# precompute_split_stats (needs split_stats_*.json for the train split). Test
+# sets do NOT need this (the interval-balanced sampler is training-only).
+# --split-stats-json only selects the train split for the JSON summary (h uses
+# split_stats_h_asinh.json, u/v use their own; all share the same split).
 # The h output index_with_interval_stats_h.csv is the index_csv the yml loads.
+# ds8 does h+u+v; ds2/4/16 are h-only.
 
 BASE_OUT="/nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel"
 
 DATASETS=(
-  "dataset_ds2_filtered_thr0p1_min25100_full"
-  "dataset_ds4_filtered_thr0p1_min10100_full"
+  "dataset_ds8_filtered_thr0p1_min5100_full"
   "dataset_ds16_filtered_thr0p1_min2100_full"
+  "dataset_ds4_filtered_thr0p1_min10100_full"
+  "dataset_ds2_filtered_thr0p1_min25100_full"
 )
 
 for DS in "${DATASETS[@]}"; do
@@ -57,7 +60,23 @@ for DS in "${DATASETS[@]}"; do
     --split-stats-json "${DSDIR}/split_stats_h_asinh.json" \
     --summary-split train
 
-  # u/v interval stats SKIPPED (h-only; see the note in precompute_split_stats.sh).
+  # ds8 only: u and v interval stats (thresholds are |velocity| for u/v).
+  if [[ "$DS" == *ds8* ]]; then
+    for UV in u v; do
+      echo "[info] patch interval stats ${UV} for ${DS}"
+      python tools/precompute_patch_interval_stats.py \
+        --index-csv "${DSDIR}/index.csv" \
+        --root "${DSDIR}" \
+        --out-csv "${DSDIR}/index_with_interval_stats_${UV}.csv" \
+        --out-json "${DSDIR}/patch_interval_summary_${UV}.json" \
+        --target-var "${UV}" \
+        --h-slight 0.1 \
+        --h-severe 0.5 \
+        --h-extreme 1.0 \
+        --split-stats-json "${DSDIR}/split_stats_${UV}.json" \
+        --summary-split train
+    done
+  fi
 done
 
 echo "[done] patch interval stats finished for: ${DATASETS[*]}"

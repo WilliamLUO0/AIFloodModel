@@ -1,11 +1,13 @@
 #!/bin/bash
-# Batch eval_flood.py aggregation (NIWA / PBS).
-# Assembles the saved per-patch predictions into GLOBAL / patch_mean metrics for
-# many experiments in one job. PREREQUISITE: the matching test_flood_map jobs
-# (options/test/<exp>_eval_*.pbs) must already have written predictions under
-# results/<evalname>/visualization/. Experiments with no vis-root are skipped.
+# Batch eval_flood.py aggregation (NIWA / PBS). Structure mirrors the NeSI
+# eval_flood_batch.sh exactly (explicit per-line jobs: each line pins WHICH model
+# reads WHICH dataset); only the cluster paths, the _pbs result suffix and the
+# _niwa.csv index names differ. Assembles saved per-patch predictions into GLOBAL
+# / patch_mean metrics. PREREQUISITE: the matching test_flood_map jobs
+# (options/test/<exp>_eval_*_pbs.*) must already have written predictions under
+# results/<evalname>_pbs/visualization/. Jobs with no vis-root are skipped.
 # Submit:  qsub tools/eval_flood_batch.pbs
-# NOTE: eval_flood.py aggregation is CPU-only (torch is used only on CPU for the
+# NOTE: eval_flood.py aggregation is CPU-only (torch on CPU only for the
 # coarse_upsample baseline). We request 1 GPU on a100q merely to guarantee a node;
 # switch to a CPU queue here if NIWA provides one.
 #PBS -q a100q
@@ -21,7 +23,6 @@
 set -euo pipefail
 
 mkdir -p /esi/project/niwa04345/luoz/AIFloodModel/logs
-
 cd /esi/project/niwa04345/luoz/AIFloodModel
 
 . $(ls /opt/niwa/profile/spack_* | tail -1)
@@ -41,69 +42,187 @@ export PYTHONUNBUFFERED=1
 
 # ===================== cluster paths (NIWA) =====================
 ROOT=/esi/project/niwa04345/luoz/AIFloodModel
-SUF="_pbs"                                        # NIWA eval-result dirs carry the _pbs suffix
+SUF="_pbs"                                    # NIWA eval-result dirs carry the _pbs suffix
+RESULTS=$ROOT/results
+BOUT="$RESULTS/_baselines"
 
 # Variable to aggregate: h (water depth), u or v (x/y water velocity). For u/v the
-# eval classifies wet/dry & bands by |v| (--abs) and the experiment / val-index
-# names carry the _u / _v suffix. VAR=h reproduces the original behaviour exactly.
-VAR=h                                             # <-- set to h / u / v
+# eval classifies wet/dry & bands by |v| (--abs) and the experiment / val-index names
+# carry the _u / _v suffix. VAR=h reproduces the original behaviour exactly.
+# Experiment names in the job lists below are BASE (h) names; $EXPSUF is appended
+# automatically. Only 01 has u/v checkpoints -- 02/03/04/05/06 are h-only, so for
+# VAR=u/v they self-skip (no _u/_v vis-root); comment them out to keep the log clean.
+VAR=h                                         # <-- set to h / u / v
 if [[ "$VAR" == "h" ]]; then EXPSUF=""; ABS=""; else EXPSUF="_${VAR}"; ABS="--abs"; fi
 
 TRAIN_INDEX=index_with_interval_stats_${VAR}_niwa.csv  # val index (per training dataset)
 TEST_INDEX=index_niwa.csv                              # test-dataset index (all vars)
 
-# ===================== EDIT HERE: which experiments =====================
-# Main model -> evaluated on val + the three designed 42h test scenarios + Gabrielle.
-MAIN_EXPERIMENTS=(
-  01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW${EXPSUF}
+# ===================== EDIT HERE: explicit eval jobs =====================
+# Fully explicit -- each line pins WHICH model reads WHICH dataset. Comment out
+# anything already aggregated (you may run this in several batches).
+#
+# VAL jobs -> "exp_base:train_dataset_dir"  (val patches live in the training
+#   dataset; read as *_patch_mean, pinned to the seed-61 val 20% via --vis-root).
+VAL_JOBS=(
+  # --- 01 main model (h; u/v via VAR knob) ---
+  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # --- 02 baselines (matched-loss + native-loss variants) ---
+  "02_FMPFTV7_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  "02_HeUNet_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  "02_HeUNet_SRx8_Filter_InbaL2:dataset_ds8_filtered_thr0p1_min5100_full"
+  "02_SwinFlood_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  "02_SwinFlood_SRx8_Filter_InbaL2:dataset_ds8_filtered_thr0p1_min5100_full"
+  "02_RSwinUNet_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  "02_RSwinUNet_SRx8_Filter_InbaL1:dataset_ds8_filtered_thr0p1_min5100_full"
+  # --- 03 input ablations ---
+  "03_FMPFTV8_Abl_coarse_demOnly_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  "03_FMPFTV8_Abl_coarse_zsOnly_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  "03_FMPFTV8_Abl_static_demOnly_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  "03_FMPFTV8_Abl_static_noAspect_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  "03_FMPFTV8_Abl_static_noDEM_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  "03_FMPFTV8_Abl_static_noRough_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  "03_FMPFTV8_Abl_static_noSlope_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  "03_FMPFTV8_Abl_static_noTWI_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # --- 04 loss / mechanism ablations (noFilter trains on the UNFILTERED ds8) ---
+  "04_FMPFTV8_Abl_noAoiGate_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  "04_FMPFTV8_Abl_noBCE_SRx8_Filter_InbaL1_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  "04_FMPFTV8_Abl_noFilter_SRx8_InbaL1BCE_LW:dataset_ds8"
+  "04_FMPFTV8_Abl_noIBS_SRx8_Filter_L1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  "04_FMPFTV8_Abl_noResidual_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # --- 05 architecture ablations ---
+  "05_FMPFTV8Abl_convBottleneck_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  "05_FMPFTV8Abl_noUshape_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  "05_FMPFTV8Abl_noUshapeDFuse_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  "05_FMPFTV9_Abl_deepSkip_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  "05_FMPFTV9_Abl_deepSkipFuse_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # --- 06 downscaling-factor models (h-only; comment out for VAR=u/v) ---
+  "06_FMPFTV8_SRx2_Filter_InbaL1BCE_LW:dataset_ds2_filtered_thr0p1_min25100_full"
+  "06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW:dataset_ds4_filtered_thr0p1_min10100_full"
+  "06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW:dataset_ds16_filtered_thr0p1_min2100_full"
 )
 
-# Ablations / baselines -> evaluated on the VAL set only. Add or remove lines freely.
-# NOTE: these are literal experiment names (NOT auto-suffixed by $VAR). They are
-# h-only ablations, so when VAR=u/v set this list to EMPTY (or list _u/_v models).
-VAL_ONLY_EXPERIMENTS=(
-  02_HeUNet_SRx8_Filter_InbaL1BCE_LW
-  02_SwinFlood_SRx8_Filter_InbaL1BCE_LW
-  02_RSwinUNet_SRx8_Filter_InbaL1BCE_LW
-  03_FMPFTV8_Abl_static_noDEM_SRx8_Filter_InbaL1BCE_LW
-  04_FMPFTV8_Abl_noAoiGate_SRx8_Filter_InbaL1BCE_LW
-  05_FMPFTV8Abl_noUshapeDFuse_SRx8_Filter_InbaL1BCE_LW
+# TEST jobs -> "exp_base:eval_tag:test_dataset_dir"  (complete maps; read *_global).
+TEST_JOBS=(
+  # --- 01 main model -> ALL 7 test sets (factor-8) ---
+  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test2y42h0c:testdataset_2y42h0c"
+  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test5y42h0c:testdataset_5y42h0c"
+  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test10y42h0c:testdataset_10y42h0c"
+  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test50y42h0c:testdataset_50y42h0c"
+  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test1000y42h0c:testdataset_1000y42h0c"
+  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  # --- 02 baselines -> 100y + gabrielle ---
+  "02_FMPFTV7_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  "02_FMPFTV7_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  "02_HeUNet_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  "02_HeUNet_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  "02_HeUNet_SRx8_Filter_InbaL2:test100y42h0c:testdataset_100y42h0c"
+  "02_HeUNet_SRx8_Filter_InbaL2:gabrielle:testdataset_gabrielle"
+  "02_SwinFlood_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  "02_SwinFlood_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  "02_SwinFlood_SRx8_Filter_InbaL2:test100y42h0c:testdataset_100y42h0c"
+  "02_SwinFlood_SRx8_Filter_InbaL2:gabrielle:testdataset_gabrielle"
+  "02_RSwinUNet_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  "02_RSwinUNet_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  "02_RSwinUNet_SRx8_Filter_InbaL1:test100y42h0c:testdataset_100y42h0c"
+  "02_RSwinUNet_SRx8_Filter_InbaL1:gabrielle:testdataset_gabrielle"
+  # --- 03 input ablations -> 100y + gabrielle ---
+  "03_FMPFTV8_Abl_coarse_demOnly_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  "03_FMPFTV8_Abl_coarse_demOnly_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  "03_FMPFTV8_Abl_coarse_zsOnly_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  "03_FMPFTV8_Abl_coarse_zsOnly_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  "03_FMPFTV8_Abl_static_demOnly_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  "03_FMPFTV8_Abl_static_demOnly_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  "03_FMPFTV8_Abl_static_noAspect_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  "03_FMPFTV8_Abl_static_noAspect_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  "03_FMPFTV8_Abl_static_noDEM_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  "03_FMPFTV8_Abl_static_noDEM_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  "03_FMPFTV8_Abl_static_noRough_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  "03_FMPFTV8_Abl_static_noRough_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  "03_FMPFTV8_Abl_static_noSlope_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  "03_FMPFTV8_Abl_static_noSlope_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  "03_FMPFTV8_Abl_static_noTWI_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  "03_FMPFTV8_Abl_static_noTWI_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  # --- 04 loss / mechanism ablations -> 100y + gabrielle ---
+  "04_FMPFTV8_Abl_noAoiGate_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  "04_FMPFTV8_Abl_noAoiGate_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  "04_FMPFTV8_Abl_noBCE_SRx8_Filter_InbaL1_LW:test100y42h0c:testdataset_100y42h0c"
+  "04_FMPFTV8_Abl_noBCE_SRx8_Filter_InbaL1_LW:gabrielle:testdataset_gabrielle"
+  "04_FMPFTV8_Abl_noFilter_SRx8_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  "04_FMPFTV8_Abl_noFilter_SRx8_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  "04_FMPFTV8_Abl_noIBS_SRx8_Filter_L1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  "04_FMPFTV8_Abl_noIBS_SRx8_Filter_L1BCE_LW:gabrielle:testdataset_gabrielle"
+  "04_FMPFTV8_Abl_noResidual_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  "04_FMPFTV8_Abl_noResidual_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  # --- 05 architecture ablations -> 100y + gabrielle ---
+  "05_FMPFTV8Abl_convBottleneck_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  "05_FMPFTV8Abl_convBottleneck_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  "05_FMPFTV8Abl_noUshape_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  "05_FMPFTV8Abl_noUshape_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  "05_FMPFTV8Abl_noUshapeDFuse_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  "05_FMPFTV8Abl_noUshapeDFuse_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  "05_FMPFTV9_Abl_deepSkip_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  "05_FMPFTV9_Abl_deepSkip_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  "05_FMPFTV9_Abl_deepSkipFuse_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  "05_FMPFTV9_Abl_deepSkipFuse_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  # --- 06 downscaling-factor models -> 100y + gabrielle on their OWN factor test sets ---
+  "06_FMPFTV8_SRx2_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c_ds2"
+  "06_FMPFTV8_SRx2_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle_ds2"
+  "06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c_ds4"
+  "06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle_ds4"
+  "06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c_ds16"
+  "06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle_ds16"
 )
 
-# Compute the coarse-upsample baseline too? It is MODEL-INDEPENDENT (just bicubic
-# upsampling of the coarse map), so it is computed ONCE per dataset, not per model.
-RUN_BASELINE=1
+# coarse-upsample baselines (bicubic upsample of the coarse map). MODEL-INDEPENDENT
+# -> ONE per dataset (the loops dedup by dataset). List ONE selector per unique
+# dataset. Output: eval_val_baseline_<dsN>{EXPSUF}.json / eval_<tag>_baseline_<dsN>{EXPSUF}.json.
+RUN_BASELINES=1
+# VAL baseline -> "selector_exp_base:train_dataset_dir" (selector's val vis pins the subset)
+VAL_BASELINE_JOBS=(
+  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  "04_FMPFTV8_Abl_noFilter_SRx8_InbaL1BCE_LW:dataset_ds8"
+  "06_FMPFTV8_SRx2_Filter_InbaL1BCE_LW:dataset_ds2_filtered_thr0p1_min25100_full"
+  "06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW:dataset_ds4_filtered_thr0p1_min10100_full"
+  "06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW:dataset_ds16_filtered_thr0p1_min2100_full"
+)
+# TEST baseline -> "eval_tag:test_dataset_dir"
+TEST_BASELINE_JOBS=(
+  "test2y42h0c:testdataset_2y42h0c"
+  "test5y42h0c:testdataset_5y42h0c"
+  "test10y42h0c:testdataset_10y42h0c"
+  "test50y42h0c:testdataset_50y42h0c"
+  "test100y42h0c:testdataset_100y42h0c"
+  "test1000y42h0c:testdataset_1000y42h0c"
+  "gabrielle:testdataset_gabrielle"
+  "test100y42h0c:testdataset_100y42h0c_ds2"
+  "gabrielle:testdataset_gabrielle_ds2"
+  "test100y42h0c:testdataset_100y42h0c_ds4"
+  "gabrielle:testdataset_gabrielle_ds4"
+  "test100y42h0c:testdataset_100y42h0c_ds16"
+  "gabrielle:testdataset_gabrielle_ds16"
+)
 # =======================================================================
 
-FILTERED_DS=dataset_ds8_filtered_thr0p1_min5100_full
-RESULTS=$ROOT/results
-
-# The VAL patches live in the training dataset; noFilter trains on the unfiltered one.
-val_dataset_dir () {
-  local exp="$1"
-  # noFilter ablation trains on the UNFILTERED ds8.
-  if [[ "$exp" == *noFilter* ]]; then echo "dataset_ds8"; return; fi
-  # Otherwise the SRx{N} tag in the name fixes the downscaling factor -> its dataset
-  # (SRx8<->ds8, SRx2<->ds2, SRx4<->ds4, SRx16<->ds16). To evaluate a factor model
-  # just add it to MAIN_EXPERIMENTS / VAL_ONLY_EXPERIMENTS; the dataset comes from here.
-  case "$exp" in
-    *_SRx2_*)  echo "dataset_ds2_filtered_thr0p1_min25100_full" ;;
-    *_SRx4_*)  echo "dataset_ds4_filtered_thr0p1_min10100_full" ;;
-    *_SRx16_*) echo "dataset_ds16_filtered_thr0p1_min2100_full" ;;
-    *_SRx8_*)  echo "dataset_ds8_filtered_thr0p1_min5100_full" ;;
-    *)         echo "$FILTERED_DS" ;;
+# dataset dir (dataset_ds8_..._full or testdataset_..._ds16) -> factor tag ds2/4/8/16.
+factor_tag () {
+  case "$1" in
+    *ds2_*|*_ds2)   echo ds2  ;;
+    *ds4_*|*_ds4)   echo ds4  ;;
+    *ds16_*|*_ds16) echo ds16 ;;
+    *)              echo ds8  ;;   # factor-8 test dirs have no suffix; ds8 training dir
   esac
 }
 
 # ---- model eval on VAL (read *_patch_mean; --vis-root pins the val 20% subset) ----
 eval_val () {
-  local exp="$1"
-  local ds; ds=$(val_dataset_dir "$exp")
+  local exp="$1" ds="$2"
   local idx="$ROOT/$ds/$TRAIN_INDEX"
   local vis="$RESULTS/${exp}_eval_val${SUF}/visualization"
   local out="$RESULTS/${exp}_eval_val${SUF}"
   if [[ ! -d "$vis" ]]; then echo "[skip][val] no vis-root: $vis"; return; fi
-  echo "[eval][val] $exp"
+  echo "[eval][val] $exp  (ds=$ds)"
   python tools/eval_flood.py \
     --index-csv "$idx" \
     --vis-root  "$vis" \
@@ -115,14 +234,13 @@ eval_val () {
 }
 
 # ---- model eval on a TEST set (read *_global; complete maps) ----
-# args: exp, eval_tag (test2y42h0c / test100y42h0c / test1000y42h0c / gabrielle), dataset_dir
 eval_one_test () {
   local exp="$1" tag="$2" dsdir="$3"
   local idx="$ROOT/$dsdir/$TEST_INDEX"
   local vis="$RESULTS/${exp}_eval_${tag}${SUF}/visualization"
   local out="$RESULTS/${exp}_eval_${tag}${SUF}"
   if [[ ! -d "$vis" ]]; then echo "[skip][$tag] no vis-root: $vis"; return; fi
-  echo "[eval][$tag] $exp"
+  echo "[eval][$tag] $exp  (ds=$dsdir)"
   python tools/eval_flood.py \
     --index-csv "$idx" \
     --vis-root  "$vis" \
@@ -133,78 +251,53 @@ eval_one_test () {
 }
 
 echo "==================== MODEL EVALS ===================="
-if (( ${#MAIN_EXPERIMENTS[@]} )); then
-  for exp in "${MAIN_EXPERIMENTS[@]}"; do
-    eval_val "$exp"
-    eval_one_test "$exp" test2y42h0c    testdataset_2y42h0c
-    eval_one_test "$exp" test100y42h0c  testdataset_100y42h0c
-    eval_one_test "$exp" test1000y42h0c testdataset_1000y42h0c
-    eval_one_test "$exp" gabrielle      testdataset_gabrielle
-  done
-fi
-if (( ${#VAL_ONLY_EXPERIMENTS[@]} )); then
-  for exp in "${VAL_ONLY_EXPERIMENTS[@]}"; do
-    eval_val "$exp"
-  done
-fi
+for job in "${VAL_JOBS[@]}"; do
+  eval_val "${job%%:*}${EXPSUF}" "${job#*:}"
+done
+for job in "${TEST_JOBS[@]}"; do
+  IFS=":" read -r ebase tag dsdir <<< "$job"
+  eval_one_test "${ebase}${EXPSUF}" "$tag" "$dsdir"
+done
 
-# ==================== BASELINES (model-independent; once per dataset) ====================
-# coarse_upsample = bicubic upsample of the coarse map -> identical for every model on a
-# given dataset, so we run it once here rather than per experiment.
-if [[ "$RUN_BASELINE" == "1" ]]; then
-  echo "==================== BASELINES ===================="
-  BOUT="$RESULTS/_baselines"; mkdir -p "$BOUT"
-
-  # VAL baselines: coarse_upsample is model-independent but DATASET-dependent, so run
-  # it once per UNIQUE val dataset among all evaluated experiments (main + val-only),
-  # using one of that dataset's val vis-roots to pin the same val subset. noFilter's
-  # unfiltered dataset_ds8 is handled automatically (it is a distinct dataset).
-  # Output is named per dataset: eval_val_baseline_<ds2|ds4|ds8|ds16><EXPSUF>.json.
-  ALL_EVAL_EXPS=()
-  if (( ${#MAIN_EXPERIMENTS[@]} )); then ALL_EVAL_EXPS+=("${MAIN_EXPERIMENTS[@]}"); fi
-  if (( ${#VAL_ONLY_EXPERIMENTS[@]} )); then ALL_EVAL_EXPS+=("${VAL_ONLY_EXPERIMENTS[@]}"); fi
-  declare -A _BASE_DONE=()
-  if (( ${#ALL_EVAL_EXPS[@]} )); then
-    for exp in "${ALL_EVAL_EXPS[@]}"; do
-      ds=$(val_dataset_dir "$exp")
-      if [[ -n "${_BASE_DONE[$ds]:-}" ]]; then continue; fi
-      selvis="$RESULTS/${exp}_eval_val${SUF}/visualization"
-      if [[ ! -d "$selvis" ]]; then
-        echo "[skip][baseline][val] no val vis-root for selector $exp ($ds)"
-        continue
-      fi
-      _BASE_DONE[$ds]=1
-      dstag="${ds#dataset_}"; dstag="${dstag%%_*}"      # -> ds2 / ds4 / ds8 / ds16
-      echo "[baseline][val] dataset=$ds selector=$exp"
-      python tools/eval_flood.py \
-        --index-csv "$ROOT/$ds/$TRAIN_INDEX" \
-        --vis-root  "$selvis" \
-        --var "$VAR" $ABS \
-        --pred-source coarse_upsample \
-        --out-json "$BOUT/eval_val_baseline_${dstag}${EXPSUF}.json"
-    done
-  else
-    echo "[skip][baseline][val] no experiments listed -> no val-subset selector"
-  fi
-
-  # TEST baselines: no --vis-root (the test index IS the whole set).
-  for pair in test2y42h0c:testdataset_2y42h0c \
-              test100y42h0c:testdataset_100y42h0c \
-              test1000y42h0c:testdataset_1000y42h0c \
-              gabrielle:testdataset_gabrielle; do
-    tag="${pair%%:*}"; dsdir="${pair##*:}"
-    idx="$ROOT/$dsdir/$TEST_INDEX"
-    if [[ -f "$idx" ]]; then
-      echo "[baseline][$tag]"
-      python tools/eval_flood.py \
-        --index-csv "$idx" \
-        --var "$VAR" $ABS \
-        --pred-source coarse_upsample \
-        --out-json "$BOUT/eval_${tag}_baseline${EXPSUF}.json" \
-        --out-csv-time "$BOUT/eval_${tag}_baseline${EXPSUF}_time.csv"
-    else
-      echo "[skip][baseline][$tag] no index: $idx"
+# ==================== BASELINES (model-independent; explicit lists) ====================
+if [[ "$RUN_BASELINES" == "1" ]]; then
+  mkdir -p "$BOUT"
+  echo "==================== VAL BASELINES ===================="
+  declare -A _VBASE_DONE=()
+  for job in "${VAL_BASELINE_JOBS[@]}"; do
+    ebase="${job%%:*}"; ds="${job#*:}"
+    if [[ -n "${_VBASE_DONE[$ds]:-}" ]]; then continue; fi
+    selvis="$RESULTS/${ebase}${EXPSUF}_eval_val${SUF}/visualization"
+    if [[ ! -d "$selvis" ]]; then
+      echo "[skip][baseline][val] no val vis-root for selector ${ebase}${EXPSUF} ($ds)"; continue
     fi
+    _VBASE_DONE[$ds]=1
+    dstag=$(factor_tag "$ds")
+    echo "[baseline][val] dataset=$ds ($dstag) selector=${ebase}${EXPSUF}"
+    python tools/eval_flood.py \
+      --index-csv "$ROOT/$ds/$TRAIN_INDEX" \
+      --vis-root  "$selvis" \
+      --var "$VAR" $ABS \
+      --pred-source coarse_upsample \
+      --out-json "$BOUT/eval_val_baseline_${dstag}${EXPSUF}.json"
+  done
+
+  echo "==================== TEST BASELINES ===================="
+  declare -A _TBASE_DONE=()
+  for job in "${TEST_BASELINE_JOBS[@]}"; do
+    IFS=":" read -r tag dsdir <<< "$job"
+    if [[ -n "${_TBASE_DONE[$dsdir]:-}" ]]; then continue; fi
+    idx="$ROOT/$dsdir/$TEST_INDEX"
+    if [[ ! -f "$idx" ]]; then echo "[skip][baseline][$tag] no index: $idx"; continue; fi
+    _TBASE_DONE[$dsdir]=1
+    dstag=$(factor_tag "$dsdir")
+    echo "[baseline][$tag] dataset=$dsdir ($dstag)"
+    python tools/eval_flood.py \
+      --index-csv "$idx" \
+      --var "$VAR" $ABS \
+      --pred-source coarse_upsample \
+      --out-json "$BOUT/eval_${tag}_baseline_${dstag}${EXPSUF}.json" \
+      --out-csv-time "$BOUT/eval_${tag}_baseline_${dstag}${EXPSUF}_time.csv"
   done
 fi
 
