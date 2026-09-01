@@ -1,6 +1,6 @@
 #!/bin/bash
-# Submit the 01 FMPFTV8 evaluation job on the held-out validation split (20% of the 18 train scenarios) (SLURM / NeSI).
-#SBATCH --job-name=eval_06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW_eval_val
+# Submit the 06 FMPFTV8 SRx4 downscaling-factor eval (SLURM / NeSI).
+#SBATCH --job-name=eval_06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW_eval_gabrielle
 #SBATCH --account=uoa04425
 #SBATCH --partition=milan,genoa
 #SBATCH --nodes=1
@@ -8,7 +8,7 @@
 #SBATCH --gres=gpu:a100:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=24G
-#SBATCH --time=24:00:00
+#SBATCH --time=08:00:00
 #SBATCH --output=logs/%x_%j.out
 #SBATCH --error=logs/%x_%j.err
 
@@ -31,6 +31,5 @@ export PYTHONUNBUFFERED=1
 nvidia-smi
 
 srun torchrun --nproc_per_node=1 --standalone \
-  basicsr/test_flood_map.py -opt options/test/06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW_eval_val.yml \
+  basicsr/test_flood_map.py -opt options/test/06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW_eval_gabrielle.yml \
   --launcher pytorch
-
