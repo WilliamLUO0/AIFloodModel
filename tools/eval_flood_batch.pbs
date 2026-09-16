@@ -176,13 +176,20 @@ TEST_JOBS=(
 )
 
 # coarse-upsample baselines (bicubic upsample of the coarse map). MODEL-INDEPENDENT
-# -> ONE per dataset (the loops dedup by dataset). List ONE selector per unique
-# dataset. Output: eval_val_baseline_<dsN>{EXPSUF}.json / eval_<tag>_baseline_<dsN>{EXPSUF}.json.
+# -> ONE per FACTOR (ds2/4/8/16); the loops dedup by output name. List ONE selector
+# per factor. Output naming is keyed by FACTOR, not by dataset dir:
+#   eval_val_baseline_<dsN>{EXPSUF}.json / eval_<tag>_baseline_<dsN>{EXPSUF}.json
+# so the ds8 val baseline is computed on the FILTERED ds8 only -- the unfiltered
+# dataset_ds8 (noFilter ablation) maps to the SAME file name and would overwrite it.
+# RUN_BASELINES  : master switch (0 = skip the whole section).
+# FORCE_BASELINES: 0 = auto-skip any baseline whose output json already exists in
+#                  results/_baselines/ (leave the lists complete and just resubmit);
+#                  1 = recompute and overwrite existing outputs.
 RUN_BASELINES=1
+FORCE_BASELINES=0
 # VAL baseline -> "selector_exp_base:train_dataset_dir" (selector's val vis pins the subset)
 VAL_BASELINE_JOBS=(
   "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  "04_FMPFTV8_Abl_noFilter_SRx8_InbaL1BCE_LW:dataset_ds8"
   "06_FMPFTV8_SRx2_Filter_InbaL1BCE_LW:dataset_ds2_filtered_thr0p1_min25100_full"
   "06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW:dataset_ds4_filtered_thr0p1_min10100_full"
   "06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW:dataset_ds16_filtered_thr0p1_min2100_full"
@@ -266,38 +273,46 @@ if [[ "$RUN_BASELINES" == "1" ]]; then
   declare -A _VBASE_DONE=()
   for job in "${VAL_BASELINE_JOBS[@]}"; do
     ebase="${job%%:*}"; ds="${job#*:}"
-    if [[ -n "${_VBASE_DONE[$ds]:-}" ]]; then continue; fi
+    dstag=$(factor_tag "$ds")
+    if [[ -n "${_VBASE_DONE[$dstag]:-}" ]]; then continue; fi   # dedup by OUTPUT name (factor)
+    outfile="$BOUT/eval_val_baseline_${dstag}${EXPSUF}.json"
+    if [[ "$FORCE_BASELINES" != "1" && -f "$outfile" ]]; then
+      echo "[skip][baseline][val] already exists: $outfile"; continue
+    fi
     selvis="$RESULTS/${ebase}${EXPSUF}_eval_val${SUF}/visualization"
     if [[ ! -d "$selvis" ]]; then
       echo "[skip][baseline][val] no val vis-root for selector ${ebase}${EXPSUF} ($ds)"; continue
     fi
-    _VBASE_DONE[$ds]=1
-    dstag=$(factor_tag "$ds")
+    _VBASE_DONE[$dstag]=1
     echo "[baseline][val] dataset=$ds ($dstag) selector=${ebase}${EXPSUF}"
     python tools/eval_flood.py \
       --index-csv "$ROOT/$ds/$TRAIN_INDEX" \
       --vis-root  "$selvis" \
       --var "$VAR" $ABS \
       --pred-source coarse_upsample \
-      --out-json "$BOUT/eval_val_baseline_${dstag}${EXPSUF}.json"
+      --out-json "$outfile"
   done
 
   echo "==================== TEST BASELINES ===================="
   declare -A _TBASE_DONE=()
   for job in "${TEST_BASELINE_JOBS[@]}"; do
     IFS=":" read -r tag dsdir <<< "$job"
-    if [[ -n "${_TBASE_DONE[$dsdir]:-}" ]]; then continue; fi
+    dstag=$(factor_tag "$dsdir")
+    if [[ -n "${_TBASE_DONE[${tag}_${dstag}]:-}" ]]; then continue; fi   # dedup by OUTPUT name
+    outfile="$BOUT/eval_${tag}_baseline_${dstag}${EXPSUF}.json"
+    if [[ "$FORCE_BASELINES" != "1" && -f "$outfile" ]]; then
+      echo "[skip][baseline][$tag] already exists: $outfile"; continue
+    fi
     idx="$ROOT/$dsdir/$TEST_INDEX"
     if [[ ! -f "$idx" ]]; then echo "[skip][baseline][$tag] no index: $idx"; continue; fi
-    _TBASE_DONE[$dsdir]=1
-    dstag=$(factor_tag "$dsdir")
+    _TBASE_DONE[${tag}_${dstag}]=1
     echo "[baseline][$tag] dataset=$dsdir ($dstag)"
     python tools/eval_flood.py \
       --index-csv "$idx" \
       --var "$VAR" $ABS \
       --pred-source coarse_upsample \
-      --out-json "$BOUT/eval_${tag}_baseline_${dstag}${EXPSUF}.json" \
-      --out-csv-time "$BOUT/eval_${tag}_baseline_${dstag}${EXPSUF}_time.csv"
+      --out-json "$outfile" \
+      --out-csv-time "${outfile%.json}_time.csv"
   done
 fi
 
