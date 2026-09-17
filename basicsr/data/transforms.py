@@ -229,7 +229,10 @@ def augment_flood_map(transform_list, *, target_var: str, use_hflip: bool, use_r
             a_cos = -a_cos
 
         if do_rot90:
-            a_sin, a_cos = -a_cos, a_sin
+            # Patches are stored with row 0 = south, so np.rot90(k=1) is a
+            # clockwise turn in map space.
+            # a_sin, a_cos = -a_cos, a_sin
+            a_sin, a_cos = a_cos, -a_sin
 
         out[idx_asin] = a_sin
         out[idx_acos] = a_cos
