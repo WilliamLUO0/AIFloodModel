@@ -1,11 +1,20 @@
 #!/bin/bash
 # Assemble per-patch predictions into full flood-map NetCDFs (NIWA / PBS).
+# PBS twin of tools/assemble_flood_batch.sh (NeSI / SLURM): same EDIT HERE knobs
+# and the same loop; only the cluster paths, the _pbs result suffix and the
+# _niwa.csv index name differ. Keep the two files in sync.
 # PREREQUISITE: the matching test_flood_map eval jobs have written per-patch
-# predictions under results/<evalname>/visualization/. Assembly only makes sense
-# for the COMPLETE test sets; the val split is a scattered 20% subset (not listed).
-# Submit:  qsub tools/assemble_flood_batch.pbs
-#PBS -q a100q
-#PBS -l select=1:ncpus=4:ngpus=1:mem=48GB:nodepool=a100p
+# predictions under results/<evalname>_pbs/visualization/. Assembly only makes
+# sense for the COMPLETE test sets; the val split is a scattered 20% subset and
+# cannot be stitched into full maps, so it is not listed here.
+# Submit from the repo root:  qsub tools/assemble_flood_batch.pbs
+#
+# CPU-only (numpy + netCDF4 stitching, no torch) -> shortq CPU queue, no GPU
+# (shortq max walltime on NIWA is 48h). Resources match the NeSI .sh
+# (4 cpu / 48G / 6h). If shortq needs a specific CPU nodepool on NIWA, add
+# `:nodepool=<cpu_pool>` to the select line.
+#PBS -q shortq
+#PBS -l select=1:ncpus=4:mem=48GB
 #PBS -l walltime=6:00:00
 #PBS -N assemble_flood_batch_pbs
 #PBS -S /bin/bash
@@ -19,8 +28,8 @@ set -euo pipefail
 mkdir -p /esi/project/niwa04345/luoz/AIFloodModel/logs
 cd /esi/project/niwa04345/luoz/AIFloodModel
 
+# No CUDA needed (CPU-only job); gcc only for the conda env's compiled libs.
 . $(ls /opt/niwa/profile/spack_* | tail -1)
-spack load cuda@12.8.0
 spack load gcc@12.2.0
 
 . $(ls /opt/niwa/profile/conda_* | tail -1)
@@ -28,6 +37,10 @@ set +u
 conda activate /esi/project/niwa04345/luoz/envs/pft39
 set -u
 
+export OMP_NUM_THREADS=4
+export OPENBLAS_NUM_THREADS=4
+export MKL_NUM_THREADS=4
+export NUMEXPR_NUM_THREADS=4
 export PYTHONUNBUFFERED=1
 
 # ===================== cluster paths (NIWA) =====================
@@ -38,15 +51,15 @@ TEST_INDEX=index_niwa.csv   # test-dataset index (all vars)
 # ===================== EDIT HERE =====================
 VAR=h                  # h (water depth) / u / v (x/y velocity)
 SOURCE=pred            # pred = model output (needs vis-root) | gt = simulated fine (for comparison)
-PER_TS_NPY=0           # 1 to also dump one assembled .npy per timestep
+PER_TS_NPY=1           # 1 to also dump one assembled .npy per timestep
 
 # Which test sets to assemble -- comment out any line you don't want.
 # format:  eval_tag : test-dataset-dir : scenario-token (as in the patch core names)
 TESTSETS=(
-  test2y42h0c:testdataset_2y42h0c:2y_42h_0c
+  # test2y42h0c:testdataset_2y42h0c:2y_42h_0c
   test100y42h0c:testdataset_100y42h0c:100y_42h_0c
-  test1000y42h0c:testdataset_1000y42h0c:1000y_42h_0c
-  gabrielle:testdataset_gabrielle:gabrielle
+  # test1000y42h0c:testdataset_1000y42h0c:1000y_42h_0c
+  # gabrielle:testdataset_gabrielle:gabrielle
 )
 # =====================================================
 if [[ "$VAR" == "h" ]]; then EXPSUF=""; else EXPSUF="_${VAR}"; fi

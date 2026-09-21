@@ -16,11 +16,15 @@
 #
 # Submit:  qsub tools/unpack_dataset.pbs
 #
-# CPU/IO-only (tar + gunzip); no GPU -> longq CPU queue. If longq needs a specific
-# CPU nodepool on NIWA, add `:nodepool=<cpu_pool>` to the select line.
-#PBS -q longq
-#PBS -l select=1:ncpus=4:mem=32GB
-#PBS -l walltime=24:00:00
+# CPU/IO-only (tar + gunzip); no GPU -> shortq CPU queue (shortq max walltime
+# on NIWA is 48h). Resources match the NeSI pack_dataset.sh (2 cpu / 16G / 48h).
+# A dataset cut off mid-extract simply re-extracts in full on the next run (tar
+# overwrites), but only a completed run prints its [metrics] line. If shortq
+# needs a specific CPU nodepool on NIWA, add `:nodepool=<cpu_pool>` to the
+# select line.
+#PBS -q shortq
+#PBS -l select=1:ncpus=2:mem=32GB
+#PBS -l walltime=36:00:00
 #PBS -N unpack_dataset
 #PBS -S /bin/bash
 #PBS -o /esi/project/niwa04345/luoz/AIFloodModel/logs/
