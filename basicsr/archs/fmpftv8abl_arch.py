@@ -21,6 +21,25 @@ V8 exactly, so flipping ONE flag is a clean single-axis ablation:
         in V8, so this single change yields a controlled conv U-Net (cleaner than
         comparing to the external HeUNet).  -> the "PFT block" pillar.
 
+  * skip_scales (default None = all skips) — Paper 2 M1-B row (i):
+        list of ENCODER skip indices that are concatenated in the decoder.
+        Index 0 = finest skip (static_stem output, fine resolution), index k =
+        after k PixelUnshuffle downs (fine / 2^k); valid range [0, n_stages-1].
+        `[0]` keeps only the finest skip (the s = 2 topology reproduced at s = 8).
+        Decoder stage i (i = 0 is the coarsest decoder stage) consumes encoder
+        index n_stages-1-i. Stages whose skip is dropped keep their
+        DecoderFuseBlock (input = upsampled feature only), so decoder capacity
+        stays ~constant; the bottleneck topography fusion is untouched.
+
+  * use_fine_topography (default True) — Paper 2 M1-B row (k):
+        False -> the fine-grid topography encoder is removed entirely
+        (static_stem / static_downs / gn_static deleted) and conv_first takes the
+        coarse-map feature alone. Requires static_in_chans == 1 (the dataset's
+        `static_vars: [mask]`): the AOI mask is then used ONLY by the AOI gate
+        (and by the loss / eval in fmsr_model). Also requires
+        use_ushape_skips=False (there is no encoder to provide skips); the
+        DecoderFuseBlocks are kept (no-skip form), as in row (j).
+
 NOTE on fairness: tune `conv_bottleneck_blocks` so the conv bottleneck's parameter
 count roughly matches the PFT bottleneck (print param counts on the HPC and adjust),
 otherwise the comparison becomes "attention vs fewer params" rather than
@@ -66,14 +85,20 @@ class FloodMapPFTV8Abl(FloodMapPFTV8):
             attention bottleneck with a residual conv stack.
         conv_bottleneck_blocks (int): number of ConvResBlocks when bottleneck_type
             == 'conv' (tune to match the PFT bottleneck's param count).
+        skip_scales (list[int] | None): encoder skip indices kept in the decoder
+            (0 = finest). None = all (V8 behaviour).
+        use_fine_topography (bool): False removes the fine-grid topography
+            encoder (static input must then be the mask only).
     """
 
     def __init__(self, *args, use_ushape_skips=True, use_decoder_fuse=True,
-                 bottleneck_type='pft', conv_bottleneck_blocks=8, **kwargs):
+                 bottleneck_type='pft', conv_bottleneck_blocks=8,
+                 skip_scales=None, use_fine_topography=True, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.use_ushape_skips = bool(use_ushape_skips)
         self.use_decoder_fuse = bool(use_decoder_fuse)
+        self.use_fine_topography = bool(use_fine_topography)
         self.bottleneck_type = str(bottleneck_type).lower().strip()
         assert self.bottleneck_type in ('pft', 'conv'), \
             f"bottleneck_type must be 'pft' or 'conv', got {self.bottleneck_type}"
@@ -82,17 +107,66 @@ class FloodMapPFTV8Abl(FloodMapPFTV8):
         embed_dim = self.embed_dim
         use_act = self.use_decoder_act
 
-        # --- pillar 1: no U-shape skips -> decoder fuses only the upsampled feat ---
+        # --- resolve which encoder skips the decoder concatenates ---
+        all_scales = list(range(self.n_stages))
+        if skip_scales is not None:
+            if not self.use_ushape_skips:
+                raise ValueError('[FloodMapPFTV8Abl] skip_scales is set but use_ushape_skips=False; '
+                                 'leave skip_scales unset when the skips are disabled.')
+            if not self.use_decoder_fuse:
+                raise ValueError('[FloodMapPFTV8Abl] skip_scales requires use_decoder_fuse=True '
+                                 '(without the fuse blocks the skips are never used).')
+            if isinstance(skip_scales, int):
+                skip_scales = [skip_scales]
+            kept = [int(k) for k in skip_scales]
+            if len(kept) == 0:
+                raise ValueError('[FloodMapPFTV8Abl] skip_scales is empty; use use_ushape_skips=False instead.')
+            if len(set(kept)) != len(kept):
+                raise ValueError(f'[FloodMapPFTV8Abl] skip_scales has duplicates: {kept}')
+            bad = [k for k in kept if k not in all_scales]
+            if bad:
+                raise ValueError(f'[FloodMapPFTV8Abl] skip_scales {bad} out of range {all_scales} '
+                                 f'(n_stages={self.n_stages}, 0 = finest).')
+            kept = sorted(kept)
+        elif self.use_ushape_skips:
+            kept = list(all_scales)
+        else:
+            kept = []
+
+        if not self.use_fine_topography:
+            if self.use_ushape_skips:
+                raise ValueError('[FloodMapPFTV8Abl] use_fine_topography=False requires '
+                                 'use_ushape_skips=False (no encoder -> no skips).')
+            if self.static_in_ch != 1:
+                raise ValueError(f'[FloodMapPFTV8Abl] use_fine_topography=False requires '
+                                 f'static_in_chans=1 (static_vars: [mask]); got {self.static_in_ch}.')
+        self.skip_scales = kept
+
+        # --- pillar 1: U-shape skips (all / subset / none) -> rebuild the fuse blocks ---
         if not self.use_decoder_fuse:
             if hasattr(self, 'dec_fuse'):
                 delattr(self, 'dec_fuse')
 
-        elif not self.use_ushape_skips:
-            self.dec_fuse = nn.ModuleList([
-                DecoderFuseBlock(num_feat, num_feat, use_act=use_act)
-                for _ in range(self.n_stages)
-            ])
+        elif kept != all_scales:
+            # Decoder stage i consumes encoder skip index n_stages-1-i. A stage whose
+            # skip is dropped keeps a DecoderFuseBlock on the upsampled feature only.
+            dec_fuse = []
+            for i in range(self.n_stages):
+                enc_idx = self.n_stages - 1 - i
+                in_ch = num_feat + self._skip_ch[enc_idx] if enc_idx in kept else num_feat
+                dec_fuse.append(DecoderFuseBlock(in_ch, num_feat, use_act=use_act))
+            self.dec_fuse = nn.ModuleList(dec_fuse)
             self.dec_fuse.apply(self._init_weights)
+
+        # --- no fine-grid topography: drop the encoder, conv_first sees coarse only ---
+        if not self.use_fine_topography:
+            for name in ('static_stem', 'static_downs', 'gn_static'):
+                if hasattr(self, name):
+                    delattr(self, name)
+            self.conv_first = nn.Conv2d(num_feat, embed_dim, 3, 1, 1)
+            # parity with the other rows (review A8). _init_weights only touches Linear/LayerNorm, so this is
+            # a no-op for this Conv2d: V8's own conv_first also keeps PyTorch's default Conv2d init.
+            self.conv_first.apply(self._init_weights)
 
         # --- pillar 2: conv bottleneck instead of the PFT attention bottleneck ---
         if self.bottleneck_type == 'conv':
@@ -141,20 +215,26 @@ class FloodMapPFTV8Abl(FloodMapPFTV8):
         else:
             gate = None
 
-        # ---- topography encoder (same as V8) ----
-        s = self.static_stem(static_f)
-        skips = [s]
-        for down in self.static_downs:
-            s = down(s)
-            skips.append(s)
-        static_deep = skips[-1]
-        enc_skips = skips[:-1]
-
-        # ---- coarse branch + bottleneck fusion ----
+        # ---- coarse branch ----
         coarse_feat = self.conv_coarse_fm(coarse_fm)
         coarse_feat = self.gn_coarse(coarse_feat)
-        static_deep = self.gn_static(static_deep)
-        x = self.conv_first(torch.cat([coarse_feat, static_deep], dim=1))
+
+        if self.use_fine_topography:
+            # ---- topography encoder (same as V8) + bottleneck fusion ----
+            s = self.static_stem(static_f)
+            skips = [s]
+            for down in self.static_downs:
+                s = down(s)
+                skips.append(s)
+            static_deep = skips[-1]
+            enc_skips = skips[:-1]       # index 0 = finest
+
+            static_deep = self.gn_static(static_deep)
+            x = self.conv_first(torch.cat([coarse_feat, static_deep], dim=1))
+        else:
+            # ---- no fine-grid topography: bottleneck sees the coarse feature only ----
+            enc_skips = []
+            x = self.conv_first(coarse_feat)
         x_rc = x
         if gate is not None:
             x = x * gate
@@ -170,14 +250,15 @@ class FloodMapPFTV8Abl(FloodMapPFTV8):
         if gate is not None:
             x = x * gate
 
-        # ---- U-Net decoder: with or without the topography skips ----
+        # ---- U-Net decoder: all / a subset of / none of the topography skips ----
+        # Decoder stage i (coarsest first) pairs with encoder skip n_stages-1-i.
         d = self.dec_proj(x)
-        skips_dec = list(reversed(enc_skips))
         for i in range(self.n_stages):
             d_up = self.dec_ups[i](d)
             if self.use_decoder_fuse:
-                if self.use_ushape_skips:
-                    fused = self.dec_fuse[i](torch.cat([d_up, skips_dec[i]], dim=1))
+                enc_idx = self.n_stages - 1 - i
+                if enc_idx in self.skip_scales:
+                    fused = self.dec_fuse[i](torch.cat([d_up, enc_skips[enc_idx]], dim=1))
                 else:
                     fused = self.dec_fuse[i](d_up)
                 d = fused + d_up

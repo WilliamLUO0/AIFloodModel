@@ -244,11 +244,24 @@ class PairedFloodMapDataset(data.Dataset):
         check_required_fields(self.rows)
         self._check_required_fields_for_aux(self.rows)
 
-        coarse_channels_log = [f'{self.target_var}(coarse_flood_map)'] + list(self.aux_vars)
+        # Paper 2 M2 probe (test-time only): replace whole static channels by the TRAINING mean
+        # in network-input space ("mean-ablation"). Default off -> behaviour unchanged.
+        self.static_mean_ablate, self.static_mean_values = self._parse_static_mean_ablate(
+            opt.get('static_mean_ablate', None))
+
+        # Paper 2 S2 (Delta-t input): extra COARSE target frames at time_index + offset (in output frames;
+        # BG-Flood output is hourly -> 1 frame = 1 h). Looked up among ALL unfiltered rows of this var
+        # (not only this split: coarse maps are inputs, never targets). Default off -> behaviour unchanged.
+        self.coarse_dt_offsets = self._parse_coarse_dt_offsets(opt.get('coarse_dt_offsets', None))
+        self._coarse_series = self._build_coarse_series(rows) if self.coarse_dt_offsets else {}
+
+        coarse_channels_log = [f'{self.target_var}(coarse_flood_map)'] + list(self.aux_vars) + \
+            [f'{self.target_var}(coarse, t{k:+d})' for k in self.coarse_dt_offsets]
+        n_coarse = 1 + len(self.aux_vars) + len(self.coarse_dt_offsets)
         get_root_logger().info(
             f'[PairedFloodMapDataset] phase={self.phase} INPUTS:\n'
-            f'  - coarse_flood_map ({1 + len(self.aux_vars)} ch -> set network_g.coarse_in_chans='
-            f'{1 + len(self.aux_vars)}): {coarse_channels_log}\n'
+            f'  - coarse_flood_map ({n_coarse} ch -> set network_g.coarse_in_chans='
+            f'{n_coarse}): {coarse_channels_log}\n'
             f'  - fine_static_feature ({len(self.static_vars)} ch -> set network_g.static_in_chans='
             f'{len(self.static_vars)}, mask is last): {self.static_vars}\n'
             f'  - target: fine_flood_map({self.target_var})'
@@ -317,6 +330,107 @@ class PairedFloodMapDataset(data.Dataset):
         # Emit in canonical order; force 'mask' present and last.
         terrain = [c for c in canon if c != 'mask' and c in items]
         return terrain + ['mask']
+
+    def _parse_coarse_dt_offsets(self, raw):
+        """`coarse_dt_offsets`: non-zero integer frame offsets of extra coarse frames, e.g. [-1] (causal,
+        Delta-t = 1 frame) or [-1, 1] (symmetric). Channels are appended in the given order AFTER the
+        aux vars, so channel 0 stays the CURRENT coarse frame (global residual)."""
+        if raw is None or raw == '' or (isinstance(raw, (list, tuple)) and len(raw) == 0):
+            return []
+        items = [raw] if isinstance(raw, (int, str)) else list(raw)
+        try:
+            offs = [int(x) for x in items]
+        except (TypeError, ValueError):
+            raise ValueError(f'[ERROR] coarse_dt_offsets must be integers, got {raw}')
+        if any(k == 0 for k in offs) or len(set(offs)) != len(offs):
+            raise ValueError(f'[ERROR] coarse_dt_offsets must be unique non-zero integers, got {offs}')
+        if self.target_var != 'h':
+            # u/v flips negate the coarse/fine velocity channels in augment_flood_map; the extra frames
+            # would need the same sign handling -> only supported (and needed) for h.
+            raise ValueError('[ERROR] coarse_dt_offsets is only supported for target_var = h')
+        return offs
+
+    def _build_coarse_series(self, rows):
+        """(scenario, patch_row, patch_col) -> {time_index: coarse_path}; the time indices of every
+        series must be contiguous (a gap would silently change Delta-t -> error)."""
+        series = {}
+        for r in rows:
+            key = (r['scenario'], int(r['patch_row']), int(r['patch_col']))
+            ti = int(r['time_index'])
+            d = series.setdefault(key, {})
+            if ti in d:
+                raise RuntimeError(f'[ERROR] duplicate time_index {ti} for {key} in {self.index_csv}')
+            d[ti] = r['coarse_path']
+        for key, d in series.items():
+            tis = sorted(d)
+            if tis != list(range(tis[0], tis[-1] + 1)):
+                raise RuntimeError(f'[ERROR] coarse series {key} has gaps in time_index: {tis[:5]}...{tis[-5:]}')
+        return series
+
+    def _coarse_neighbor_path(self, r, k):
+        """Coarse frame at time_index + k of the same scenario/patch; beyond the first/last frame the
+        boundary frame is repeated (spec: 'first/last steps padded by repetition')."""
+        d = self._coarse_series[(r['scenario'], int(r['patch_row']), int(r['patch_col']))]
+        lo, hi = min(d), max(d)
+        ti = min(max(int(r['time_index']) + k, lo), hi)
+        return d[ti]
+
+    def _parse_static_mean_ablate(self, raw):
+        """Validate `static_mean_ablate` and pre-compute, per network-input channel, the constant
+        that the TRAINING mean (split_stats 'stats', AOI cells of the train split) maps to under the
+        dataset's own normalisation:
+          dem / roughness / twi : normalised training mean (0 under zscore)
+          slope                 : training mean slope / 90 (slope is only divided by 90)
+          aspect                : aspect_sin and aspect_cos -> their raw training means (no transform)
+        Only AOI cells (mask > 0.5) are replaced; outside the AOI the normal masked value is kept, so,
+        like the file-based probes, nothing changes outside the AOI (spec review 2026-10-13, B2).
+        The AOI mask itself is never ablated.
+        """
+        if raw is None or (isinstance(raw, (list, tuple)) and len(raw) == 0) or raw == '':
+            return [], {}
+        if self.phase == 'train':
+            raise ValueError('[ERROR] static_mean_ablate is a test-time probe; not allowed in phase=train.')
+        items = [raw] if isinstance(raw, str) else list(raw)
+        items = [str(x).strip() for x in items if str(x).strip() != '']
+        allowed = ('dem', 'roughness', 'slope', 'twi', 'aspect')
+        unknown = [x for x in items if x not in allowed]
+        if unknown or len(set(items)) != len(items):
+            raise ValueError(f'[ERROR] static_mean_ablate={items}: allowed (unique) {allowed}')
+
+        S = self.stats_static
+
+        def _norm(name, key):
+            v = np.asarray([[float(S[key]['mean'])]], dtype=np.float32)
+            v = self._clip_by_stats(v, S[key], self.use_clip_static, name=name)
+            if self.norm == 'zscore':
+                v = cal_zscore(v, S[key]['mean'], S[key]['std'])
+            else:
+                v = cal_minmaxnorm(v, S[key]['min'], S[key]['max'])
+            return float(np.asarray(v).reshape(-1)[0])
+
+        values, phys = {}, {}
+        for name in items:
+            if name == 'aspect':
+                for ch in ('aspect_sin', 'aspect_cos'):
+                    if ch not in self.static_vars:
+                        raise ValueError(f'[ERROR] static_mean_ablate: {ch} is not an input channel (static_vars).')
+                    values[ch] = float(S[ch]['mean'])
+                    phys[ch] = f'raw train mean {values[ch]:.6f}'
+                continue
+            if name not in self.static_vars:
+                raise ValueError(f'[ERROR] static_mean_ablate: {name} is not an input channel (static_vars).')
+            if name == 'slope':
+                values['slope'] = float(S['slope']['mean']) / 90.0
+                phys['slope'] = f"train mean {float(S['slope']['mean']):.4f} deg -> /90"
+            else:
+                key = {'dem': 'elevation', 'roughness': 'roughness', 'twi': 'twi'}[name]
+                values[name] = _norm(f'{key}_mean_ablate', key)
+                phys[name] = f"train mean {float(S[key]['mean']):.6f} -> {self.norm}"
+        get_root_logger().info(
+            f'[PairedFloodMapDataset] phase={self.phase} MEAN-ABLATION of static channels '
+            f'(AOI cells := training mean in network-input space; outside the AOI unchanged): '
+            + ', '.join(f'{k}={v:.6f} ({phys[k]})' for k, v in values.items()))
+        return items, values
 
     def _check_required_fields_for_aux(self, rows):
         if len(rows) == 0:
@@ -722,6 +836,12 @@ class PairedFloodMapDataset(data.Dataset):
             aux_transform_indices[aux_name] = len(transform_list)
             transform_list.append(aux_loaded[aux_name])
 
+        # S2: extra coarse frames (same patch, time_index + k), augmented together with everything else
+        dt_transform_indices = []
+        for k in self.coarse_dt_offsets:
+            dt_transform_indices.append(len(transform_list))
+            transform_list.append(load_npy_shape(self._coarse_neighbor_path(r, k), expect_shape=(Hc, Hc)))
+
         if (self.target_var in ('u', 'v')) and (self.phase == 'train') and (self.wet_threshold is not None):
             h_fine_path = self._infer_h_fine_path(r['fine_path'], src_var=self.target_var)
             if os.path.isfile(h_fine_path):
@@ -758,6 +878,7 @@ class PairedFloodMapDataset(data.Dataset):
 
         for aux_name in self.aux_vars:
             aux_loaded[aux_name] = transform_list[aux_transform_indices[aux_name]]
+        dt_frames = [transform_list[i] for i in dt_transform_indices]
 
         loss_wet_mask = None
         if (self.target_var in ('u', 'v')) and (self.phase == 'train') and (self.wet_threshold is not None):
@@ -766,6 +887,7 @@ class PairedFloodMapDataset(data.Dataset):
 
         S_static = self.stats_static
         S_var = self.stats_var
+        dt_norm = []                                       # S2 extra coarse frames (h only), normalised below
 
         # -----------------------------
         # normalize main target variable
@@ -794,6 +916,17 @@ class PairedFloodMapDataset(data.Dataset):
             else:
                 cfm = cal_minmaxnorm(cfm, S_shared['min'], S_shared['max'])
                 ffm = cal_minmaxnorm(ffm, S_shared['min'], S_shared['max'])
+
+            # S2 extra coarse frames: exactly the transform/clip/normalisation of the current coarse frame
+            dt_norm = []
+            for fr in dt_frames:
+                x = cal_log1p(fr) if self.transform == 'log1p' else cal_asinh_p90(fr, s_val)
+                x = self._clip_by_stats(x, S_shared, self.use_clip_coarse, name='coarse_h_dt')
+                if self.norm == 'zscore':
+                    x = cal_zscore(x, S_shared['mean'], S_shared['std'])
+                else:
+                    x = cal_minmaxnorm(x, S_shared['min'], S_shared['max'])
+                dt_norm.append(x)
 
         else:
             S_shared = S_var['shared']
@@ -849,6 +982,8 @@ class PairedFloodMapDataset(data.Dataset):
             'aspect_cos': a_cos,
             'mask': mask,
         }
+        for ch, val in self.static_mean_values.items():      # M2 mean-ablation probe (default: none)
+            static_channel_map[ch] = np.where(mask > 0.5, np.float32(val), static_channel_map[ch]).astype(np.float32)
         fine_static_feature = np.stack(
             [static_channel_map[name] for name in self.static_vars], axis=0
         ).astype(np.float32)
@@ -890,6 +1025,8 @@ class PairedFloodMapDataset(data.Dataset):
             else:
                 raise ValueError(f'[ERROR] Unsupported aux var during normalization: {aux_name}')
 
+        for x in dt_norm:                                  # S2: after aux -> channel 0 stays the current frame
+            coarse_channels.append(x.astype(np.float32))
         coarse_flood_map = np.stack(coarse_channels, axis=0).astype(np.float32)
         fine_flood_map = np.expand_dims(ffm.astype(np.float32), axis=0)
 
@@ -905,6 +1042,7 @@ class PairedFloodMapDataset(data.Dataset):
                 'col': int(r['patch_col']),
                 'var': self.target_var,
                 'aux_vars': list(self.aux_vars),
+                'coarse_dt_offsets': list(self.coarse_dt_offsets),
                 'static_vars': list(self.static_vars),
                 'coarse_path': r['coarse_path'],
                 'fine_path': r['fine_path'],
