@@ -1,0 +1,67 @@
+#!/bin/bash
+#PBS -q a100q
+#PBS -l select=1:ncpus=4:ngpus=1:mem=24GB:nodepool=a100p
+#PBS -l walltime=24:00:00
+#PBS -N M2probe_test100y42h0c
+#PBS -S /bin/bash
+#PBS -o /esi/project/niwa04345/luoz/AIFloodModel/logs/
+#PBS -e /esi/project/niwa04345/luoz/AIFloodModel/logs/
+#PBS -m abe
+#PBS -M williamlzh00@gmail.com
+
+set -euo pipefail
+
+mkdir -p /esi/project/niwa04345/luoz/AIFloodModel/logs
+
+cd /esi/project/niwa04345/luoz/AIFloodModel
+
+. $(ls /opt/niwa/profile/spack_* | tail -1)
+spack load cuda@12.8.0
+spack load gcc@12.2.0
+
+. $(ls /opt/niwa/profile/conda_* | tail -1)
+set +u
+conda activate /esi/project/niwa04345/luoz/envs/pft39
+set -u
+
+export OMP_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export NUMEXPR_NUM_THREADS=1
+export TORCH_NUM_THREADS=1
+export PYTHONUNBUFFERED=1
+
+nvidia-smi
+
+# Paper 2 M2: run the probe levels one after another on the test100y42h0c set.
+# Submit: qsub options/test/01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2probe_eval_test100y42h0c.pbs
+# ===================== EDIT HERE: levels to run (comment a line out to skip) =====================
+LEVELS=(
+  noise_s0p1
+  noise_s0p25
+  noise_s0p5
+  noise_s1p0
+  noisedem_s0p5
+  shiftN1
+  shiftN2
+  shiftN4
+  shiftE1
+  shiftE2
+  shiftE4
+  res16
+  res32
+  res64
+  meanabl_dem
+  meanabl_roughness
+  meanabl_slope
+  meanabl_twi
+  meanabl_aspect
+)
+# =================================================================================================
+for LEV in "${LEVELS[@]}"; do
+  OPT="options/test/01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_${LEV}_eval_test100y42h0c_pbs.yml"
+  if [[ ! -f "$OPT" ]]; then echo "[error] unknown level $LEV ($OPT)" >&2; exit 1; fi
+  echo "==================== M2 $LEV (test100y42h0c) ===================="
+  torchrun --nproc_per_node=1 --standalone basicsr/test_flood_map.py -opt "$OPT" --launcher pytorch
+done
+echo "[done] M2 probes (test100y42h0c): ${LEVELS[*]}"
