@@ -197,6 +197,52 @@ EMPTY_POLICY = "nan"
 # identical to before (pa==pred, ga==gt).
 USE_ABS = False
 
+# PSNR / SSIM (Paper 2; see paper2_experiments.md "Metrics for every Paper 2 evaluation").
+# Both are computed in PHYSICAL units (metres) on AOI cells only, with one data range R
+# per evaluated set: R = max |ground truth| over all AOI cells and time steps of the set
+# (= the max GT depth for h). R is model-independent, so every model row evaluated on
+# the same set shares it; it is written next to the metrics.
+#   psnr       = 10 log10(R^2 / MSE), MSE pooled over all AOI cells (consistent with _global).
+#   ssim_map   = Wang et al. (2004) SSIM map on the STITCHED full-domain map of each
+#                (scenario, t), averaged over AOI cells, then averaged over maps. Only
+#                computed when every (scenario, t) map is complete (test sets); never for val.
+#   ssim_patch = SSIM map per fine patch, the (win_size-1)//2 = 5-cell border band cropped
+#                (reflect-padded values), AND-ed with the AOI, all surviving cells pooled.
+# Outside the AOI both maps are set to 0 before filtering (identical convention for the two
+# flavours). The two flavours are labelled separately and must not be compared with each other.
+# Reference implementation: skimage.metrics.structural_similarity(gaussian_weights=True,
+# sigma=1.5, use_sample_covariance=False, K1=0.01, K2=0.03, full=True) -> 11x11 window.
+SSIM_SIGMA = 1.5
+SSIM_K1 = 0.01
+SSIM_K2 = 0.03
+SSIM_TRUNCATE = 3.5                                              # skimage default
+SSIM_RADIUS = int(SSIM_TRUNCATE * SSIM_SIGMA + 0.5)              # 5 -> win_size 11
+SSIM_PAD = SSIM_RADIUS                                           # = (win_size - 1) // 2
+SSIM_STRIP_ROWS = 1024                                           # full-map SSIM in row strips
+SSIM_HALO = 16                                                   # >= SSIM_RADIUS -> exact
+
+# Figure-S16 edge/centre profile (Paper 2 M3/M4; binding definition in paper2_experiments.md):
+# d = min distance (cells) of a fine cell to the four edges of ITS fine patch (tiling origin 0,
+# P taken from each patch's own shape, so Row A's 128/256/512/1024 patches all work);
+# bands [0,1) [1,2) [2,4) [4,8) [8,16) [16,32) [32,64) [64,128) [128,256), plus [256,inf) which only
+# exists for P > 512; CSI over the AOI cells of a band (flood = >= 0.1 m); RMSE* over AOI cells
+# flooded in EITHER map. Table summaries: edge = d < 8, centre = d >= 64 (NaN when P <= 128).
+S16_BAND_EDGES = [0, 1, 2, 4, 8, 16, 32, 64, 128, 256]
+S16_BAND_NAMES = [f"d{lo:03d}_{hi:03d}" for lo, hi in zip(S16_BAND_EDGES[:-1], S16_BAND_EDGES[1:])] + ["d256_inf"]
+S16_EDGE_MAX = 8        # edge  = d <  8   -> bands [0,8)
+S16_CENTRE_MIN = 64     # centre = d >= 64 -> bands [64,inf)
+_S16_BAND_CACHE = {}
+
+
+def s16_band_index(H, W):
+    """(H, W) int map: S16 band index of every cell of an H x W patch (cached per shape)."""
+    key = (int(H), int(W))
+    if key not in _S16_BAND_CACHE:
+        ri, ci = np.arange(H), np.arange(W)
+        d = np.minimum(np.minimum(ri, H - 1 - ri)[:, None], np.minimum(ci, W - 1 - ci)[None, :])
+        _S16_BAND_CACHE[key] = np.searchsorted(np.asarray(S16_BAND_EDGES[1:]), d, side="right").astype(np.int64)
+    return _S16_BAND_CACHE[key]
+
 # Four intervals
 DEPTH_BANDS = {
     "nonflood": {"ge": None, "lt": 0.1},
@@ -431,6 +477,25 @@ def compute_patch_stats_depth(pred_hw: np.ndarray, gt_hw: np.ndarray, mask_hw: n
     out["val_min_g"] = float(gv.min())
     out["val_max_g"] = float(gv.max())
 
+    # -------------------------------------------------
+    # Figure-S16 edge/centre profile: per distance-to-patch-edge band, additive
+    # tp/fp/fn (AOI cells) and RMSE* sums (AOI cells wet in either map).
+    # -------------------------------------------------
+    nb = len(S16_BAND_NAMES)
+    bidx = s16_band_index(*m.shape)
+    wet_any = (p_evt | t_evt)                       # both already AND-ed with the AOI
+    cnt = lambda sel: np.bincount(bidx[sel], minlength=nb)
+    tp_b, fp_b, fn_b = cnt(p_evt & t_evt), cnt(p_evt & ~t_evt), cnt(~p_evt & t_evt)
+    n_b, nw_b = cnt(m), cnt(wet_any)
+    sse_b = np.bincount(bidx[wet_any], weights=diff2[wet_any], minlength=nb)
+    for k, name in enumerate(S16_BAND_NAMES):
+        out[f"s16_{name}_n"] = int(n_b[k])
+        out[f"s16_{name}_tp"] = int(tp_b[k])
+        out[f"s16_{name}_fp"] = int(fp_b[k])
+        out[f"s16_{name}_fn"] = int(fn_b[k])
+        out[f"s16_{name}_nwet"] = int(nw_b[k])
+        out[f"s16_{name}_sse"] = float(sse_b[k])
+
     return out
 
 
@@ -511,6 +576,26 @@ def metrics_from_stats(stats: dict):
         if k in stats:
             out[k] = float(stats[k])
 
+    # Figure-S16 profile (per band) + table summaries edge (d < 8) / centre (d >= 64).
+    # A band with no AOI cells (e.g. d >= 64 when P = 128) -> NaN, never 0.
+    if f"s16_{S16_BAND_NAMES[0]}_n" in stats:
+        def _s16(names):
+            tp = sum(int(stats[f"s16_{b}_tp"]) for b in names)
+            fp = sum(int(stats[f"s16_{b}_fp"]) for b in names)
+            fn = sum(int(stats[f"s16_{b}_fn"]) for b in names)
+            n = sum(int(stats[f"s16_{b}_n"]) for b in names)
+            nw = sum(int(stats[f"s16_{b}_nwet"]) for b in names)
+            sse = sum(float(stats[f"s16_{b}_sse"]) for b in names)
+            csi = _ratio(tp, tp + fp + fn, empty_as_nan=True) if n > 0 else float("nan")
+            return csi, _rmse_from_sse(sse, nw), n
+        for k, b in enumerate(S16_BAND_NAMES):
+            out[f"s16_csi_{b}"], out[f"s16_rmse_star_{b}"], out[f"s16_n_{b}"] = _s16([b])
+        lo = [S16_BAND_EDGES[k] if k < len(S16_BAND_EDGES) else 256 for k in range(len(S16_BAND_NAMES))]
+        edge = [b for b, l in zip(S16_BAND_NAMES, lo) if l < S16_EDGE_MAX]
+        centre = [b for b, l in zip(S16_BAND_NAMES, lo) if l >= S16_CENTRE_MIN]
+        out["csi_edge_d8"], out["rmse_star_edge_d8"], out["n_edge_d8"] = _s16(edge)
+        out["csi_centre_d64"], out["rmse_star_centre_d64"], out["n_centre_d64"] = _s16(centre)
+
     return out
 
 
@@ -541,6 +626,8 @@ def aggregate_stats(rows: list):
             f"band_{band_name}_fp",
             f"band_{band_name}_fn",
         ]
+    s16_int = [f"s16_{b}_{f}" for b in S16_BAND_NAMES for f in ("n", "tp", "fp", "fn", "nwet")]
+    sum_keys += s16_int + [f"s16_{b}_sse" for b in S16_BAND_NAMES]
 
     for k in sum_keys:
         agg[k] = 0.0
@@ -572,6 +659,7 @@ def aggregate_stats(rows: list):
             f"band_{band_name}_fp",
             f"band_{band_name}_fn",
         ]
+    int_like += s16_int
 
     for k in int_like:
         agg[k] = int(round(agg[k]))
@@ -680,7 +768,13 @@ METRIC_BETTER = {
     "recall_severe_patch_mean": "higher",
     "recall_extreme_patch_mean": "higher",
 
+    "psnr_global": "higher",
+    "psnr_mapmean": "higher",
+    "ssim_map": "higher",
+    "ssim_patch": "higher",
+
     # neutral
+    "psnr_ssim_data_range": "neutral",
     "target_prevalence_global": "neutral",
     "pred_prevalence_global": "neutral",
     "target_prevalence_patch_mean": "neutral",
@@ -751,6 +845,10 @@ CSV_METRIC_ORDER = [
     "csi_tol", "precision_tol", "recall_tol",
     "target_prevalence", "pred_prevalence",
     "accuracy", "correlation",
+    # Paper 2 secondary columns (physical units, AOI only; one R per evaluated set)
+    "psnr", "ssim_map", "ssim_patch", "psnr_ssim_data_range",
+    # Figure-S16 summaries (edge = d < 8, centre = d >= 64); per-band s16_* columns follow at the end
+    "csi_edge_d8", "csi_centre_d64", "rmse_star_edge_d8", "rmse_star_centre_d64", "n_edge_d8", "n_centre_d64",
     # value distribution
     "pred_mean", "gt_mean", "pred_std", "gt_std",
     "val_min_p", "val_max_p", "val_min_g", "val_max_g",
@@ -817,6 +915,181 @@ def mapmean_from_time_rows(time_rows):
         base = k[:-len("_global")]
         out[f"{base}_mapmean"] = (float(np.mean(vals)) if vals else float("nan"))
     return out
+
+
+# =========================================================
+# PSNR / SSIM (physical units, AOI only; see the SSIM_* config block)
+# =========================================================
+def psnr_from_mse(mse: float, data_range: float) -> float:
+    """10 log10(R^2 / MSE). Identical maps (MSE == 0) -> +inf; R <= 0 or no cells -> NaN."""
+    if not np.isfinite(mse) or not np.isfinite(data_range) or data_range <= 0:
+        return float("nan")
+    if mse <= 0.0:
+        return float("inf")
+    return float(10.0 * np.log10((data_range * data_range) / mse))
+
+
+def ssim_full_map(gt, pred, data_range):
+    """Full SSIM map (same shape as the inputs) via skimage, float64."""
+    try:
+        from skimage.metrics import structural_similarity
+    except ImportError as e:
+        raise RuntimeError("[ERROR] SSIM needs scikit-image (`import skimage` failed). Install it in "
+                           "this env or run with --ssim none.") from e
+    _, smap = structural_similarity(
+        np.asarray(gt, dtype=np.float64), np.asarray(pred, dtype=np.float64),
+        data_range=float(data_range), gaussian_weights=True, sigma=SSIM_SIGMA,
+        use_sample_covariance=False, K1=SSIM_K1, K2=SSIM_K2, full=True)
+    return smap
+
+
+def ssim_full_map_strips(gt, pred, data_range, strip_rows=SSIM_STRIP_ROWS, halo=SSIM_HALO):
+    """ssim_full_map computed in row strips (memory-bounded for full-domain maps).
+
+    Each strip is filtered together with `halo` (>= SSIM_RADIUS) real rows above/below and
+    only its own rows are kept, so interior values never see the strip cut; strips that touch
+    the true top/bottom edge see the same reflect padding as the whole-map call. The result is
+    therefore identical to ssim_full_map(gt, pred) (checked in tools/test_psnr_ssim.py)."""
+    assert halo >= SSIM_RADIUS, "halo must cover the Gaussian radius"
+    H = gt.shape[0]
+    if H <= strip_rows + 2 * halo:
+        return ssim_full_map(gt, pred, data_range)
+    out = np.empty(gt.shape, dtype=np.float64)
+    for r0 in range(0, H, strip_rows):
+        r1 = min(r0 + strip_rows, H)
+        a, b = max(0, r0 - halo), min(H, r1 + halo)
+        smap = ssim_full_map(gt[a:b], pred[a:b], data_range)
+        out[r0:r1] = smap[r0 - a:r0 - a + (r1 - r0)]
+    return out
+
+
+def _aoi_zero(pred, gt, mask):
+    """AOI boolean + copies of pred/gt with every non-AOI cell set to 0."""
+    m = np.asarray(mask) > 0.5
+    return (np.where(m, pred, 0.0).astype(np.float64),
+            np.where(m, gt, 0.0).astype(np.float64), m)
+
+
+def ssim_patch_sums(pred, gt, mask, data_range, pad=SSIM_PAD):
+    """(sum, count) of the per-patch SSIM map over AOI cells after cropping a `pad` border."""
+    p, g, m = _aoi_zero(pred, gt, mask)
+    smap = ssim_full_map(g, p, data_range)
+    if pad > 0:
+        smap = smap[pad:-pad, pad:-pad]
+        m = m[pad:-pad, pad:-pad]
+    return float(smap[m].sum()), int(m.sum())
+
+
+def add_psnr_ssim(patch_rows, time_rows, scenario_rows, dataset_global, idx, vis_root,
+                  pred_source, var, ssim_mode="auto"):
+    """Second pass: PSNR (all levels) + ssim_patch / ssim_map. Mutates the row dicts in place
+    and returns the dataset-level entries (to merge into metrics_dataset_global)."""
+    # one data range per evaluated set (model-independent)
+    vmin = float(dataset_global.get("val_min_g", float("nan")))
+    vmax = float(dataset_global.get("val_max_g", float("nan")))
+    R = float(max(abs(vmin), abs(vmax)))
+
+    for rows in (time_rows, scenario_rows):
+        for r in rows:
+            rm = r.get("rmse_global", float("nan"))
+            r["psnr_global"] = psnr_from_mse(rm * rm, R)
+            r["psnr_ssim_data_range"] = R
+    ds_out = {
+        "psnr": psnr_from_mse(dataset_global["rmse"] ** 2, R),
+        "psnr_ssim_data_range": R,
+        "ssim_patch": float("nan"),
+        "ssim_patch_n_cells": 0,
+        "ssim_map": float("nan"),
+        "ssim_map_n_maps": 0,
+        "ssim_map_available": False,
+    }
+    if ssim_mode == "none":
+        return ds_out
+    if not (R > 0):
+        print("[WARN] data range R <= 0 (all-dry set) -> SSIM skipped.")
+        return ds_out
+
+    # --- can full maps be stitched? every (scenario, t) must hold ALL its index patches ---
+    expected = defaultdict(set)
+    grid = defaultdict(lambda: [0, 0, 0])          # scenario -> [max_row, max_col, P]
+    for core, row in idx.items():
+        if row.get("var") != var:
+            continue
+        sc = row.get("scenario")
+        try:
+            rr, cc = int(row["patch_row"]), int(row["patch_col"])
+        except Exception:
+            continue
+        g = grid[sc]
+        g[0], g[1] = max(g[0], rr), max(g[1], cc)
+        if str(row.get("filtered_out", "0")) == "0":
+            expected[(sc, row.get("t"))].add(core)
+    groups = defaultdict(list)
+    for r in patch_rows:
+        groups[(r["scenario"], r["t"])].append(r)
+    incomplete = [k for k, rows in groups.items() if {r["core"] for r in rows} != expected.get(k, set())]
+    do_map = (ssim_mode == "auto") and not incomplete
+    if ssim_mode == "auto" and incomplete:
+        print(f"[INFO] ssim_map skipped: {len(incomplete)}/{len(groups)} (scenario,t) maps are incomplete "
+              f"(e.g. {incomplete[0]}) -> patch-subset set (val); only ssim_patch is reported.")
+
+    time_by_key = {(r["scenario"], r["t"]): r for r in time_rows}
+    tot_sum, tot_n = 0.0, 0
+    map_vals = []
+    sc_sum, sc_n, sc_maps = defaultdict(float), defaultdict(int), defaultdict(list)
+    for (sc, t), rows in sorted(groups.items()):
+        canvas = None
+        if do_map:
+            mr, mc, _ = grid[sc]
+        g_sum, g_n = 0.0, 0
+        for r in rows:
+            pred, gt, mask, _, _ = _load_patch_pred_gt_mask(r["core"], idx, vis_root, pred_source)
+            s, n = ssim_patch_sums(pred, gt, mask, R)
+            r["ssim_patch"] = (s / n) if n > 0 else float("nan")
+            g_sum += s
+            g_n += n
+            if do_map:
+                P = gt.shape[0]
+                if gt.shape != (P, P):
+                    raise RuntimeError(f"non-square patch {gt.shape} for {r['core']}")
+                if canvas is None:
+                    canvas = [np.zeros(((mr + 1) * P, (mc + 1) * P), dtype=np.float32) for _ in range(2)]
+                    canvas.append(np.zeros(canvas[0].shape, dtype=bool))
+                    P0 = P
+                elif P != P0:
+                    raise RuntimeError(f"inconsistent patch size {P} vs {P0} in {sc} {t}")
+                p, g, m = _aoi_zero(pred, gt, mask)
+                y0, x0 = r["patch_row"] * P, r["patch_col"] * P
+                canvas[0][y0:y0 + P, x0:x0 + P] = p
+                canvas[1][y0:y0 + P, x0:x0 + P] = g
+                canvas[2][y0:y0 + P, x0:x0 + P] = m
+        tr = time_by_key[(sc, t)]
+        tr["ssim_patch"] = (g_sum / g_n) if g_n > 0 else float("nan")
+        tot_sum += g_sum
+        tot_n += g_n
+        sc_sum[sc] += g_sum
+        sc_n[sc] += g_n
+        if do_map:
+            smap = ssim_full_map_strips(canvas[1], canvas[0], R)
+            m = canvas[2]
+            v = float(smap[m].mean()) if m.any() else float("nan")
+            tr["ssim_map"] = v
+            map_vals.append(v)
+            sc_maps[sc].append(v)
+            del canvas, smap
+
+    for r in scenario_rows:
+        sc = r["scenario"]
+        r["ssim_patch"] = (sc_sum[sc] / sc_n[sc]) if sc_n[sc] > 0 else float("nan")
+        if do_map:
+            r["ssim_map"] = mean_agg(sc_maps[sc])
+    ds_out["ssim_patch"] = (tot_sum / tot_n) if tot_n > 0 else float("nan")
+    ds_out["ssim_patch_n_cells"] = int(tot_n)
+    if do_map:
+        ds_out["ssim_map"] = mean_agg(map_vals)
+        ds_out["ssim_map_n_maps"] = len(map_vals)
+        ds_out["ssim_map_available"] = True
+    return ds_out
 
 
 # =========================================================
@@ -919,6 +1192,10 @@ def main():
                          "NSE on a zero-variance (no-flood) map are set to NaN and dropped from "
                          "every *_patch_mean / *_mapmean average (matches training empty_as_nan:true). "
                          "'zero': legacy (zero ratios = 0; degenerate NSE rescued to 1.0 / clamped to -5).")
+    ap.add_argument("--ssim", choices=["auto", "patch", "none"], default="auto",
+                    help="PSNR is always reported. SSIM: 'auto' (default) = ssim_patch always + ssim_map "
+                         "when every (scenario,t) map is complete (test sets; never val); 'patch' = "
+                         "ssim_patch only; 'none' = no SSIM (skips the second pass).")
     ap.add_argument("--debug", action="store_true")
 
     args = ap.parse_args()
@@ -1076,6 +1353,15 @@ def main():
     # -------------------------------------------------
     dataset_metrics_global = global_metrics_from_rows(patch_rows)
     dataset_metrics_patch_mean = patch_mean_metrics_from_rows(patch_rows)
+
+    # PSNR / SSIM (second pass over the same patches; adds psnr_global / ssim_* to the
+    # time & scenario rows and ssim_patch to every patch row). Must run BEFORE the
+    # dataset mapmean so per-map psnr_global is included there too.
+    dataset_metrics_global.update(add_psnr_ssim(
+        patch_rows, time_rows, scenario_rows, dataset_metrics_global, idx, args.vis_root,
+        args.pred_source, args.var, ssim_mode=args.ssim))
+    for sr in scenario_rows:
+        sr.update(mapmean_from_time_rows(time_by_scenario.get(sr["scenario"], [])))
     dataset_metrics_mapmean = mapmean_from_time_rows(time_rows)
 
     # -------------------------------------------------
@@ -1103,7 +1389,8 @@ def main():
         better = "neutral"
         if k.startswith("rmse"):
             better = "lower"
-        elif k.startswith("nse") or k.startswith("precision") or k.startswith("recall") or k.startswith("csi"):
+        elif (k.startswith("nse") or k.startswith("precision") or k.startswith("recall")
+              or k.startswith("csi") or k.startswith("ssim")):
             better = "higher"
         elif k.startswith("target_prevalence") or k.startswith("pred_prevalence") or k.startswith("support"):
             better = "neutral"
@@ -1168,6 +1455,24 @@ def main():
                 "velocity mode: wet/dry, bands, accuracy and confusion use |value| "
                 "(0.1/0.5/1.0 are |v| thresholds); RMSE/NSE/correlation stay signed. "
                 "OFF = water depth (unchanged)."
+            ),
+            "psnr_ssim": (
+                "physical units, AOI cells only, one data range R = max |GT| over the evaluated set "
+                "(psnr_ssim_data_range; model-independent). psnr = 10 log10(R^2/MSE), MSE pooled "
+                "(consistent with _global; inf if MSE = 0). ssim_map = Wang 2004 SSIM (Gaussian 11x11, "
+                "sigma 1.5, K1 0.01, K2 0.03, no sample-cov correction) on each stitched full-domain "
+                "(scenario,t) map, mean over AOI cells, then mean over maps; only when all maps are "
+                "complete (test sets). ssim_patch = same SSIM per fine patch, 5-cell border cropped, "
+                "AOI cells pooled (val). Non-AOI cells set to 0 in pred and GT before filtering. "
+                "ssim_map and ssim_patch are different estimators: never compare across them."
+            ),
+            "ssim_mode": args.ssim,
+            "s16_profile": (
+                "Figure S16: d = min distance to the edges of the cell's own fine patch (origin 0, P from "
+                "the patch shape); bands " + ", ".join(S16_BAND_NAMES) + "; CSI over AOI cells of the band "
+                "(flood >= 0.1 m), RMSE* over AOI cells wet in either map. csi_edge_d8 = d < 8, "
+                "csi_centre_d64 = d >= 64 (NaN if no such cells, e.g. P = 128). Dataset-level = pooled "
+                "over all time steps; per-(scenario,t) values are in the time CSV (*_global)."
             ),
             "depth_event_threshold": DEPTH_EVENT_THRESHOLD,
             "depth_abs_tol": DEPTH_ABS_TOL,
