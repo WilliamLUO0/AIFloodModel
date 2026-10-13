@@ -19,9 +19,8 @@ ENV_DIR=/nesi/project/uoa04425/zluo784/envs/python310
 conda activate "$ENV_DIR"
 
 INPUT="/nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/input_files/Elevation.nc"
-# Write to a NEW dir first so you can diff against the old (buggy) Topo_Attrs
-# before swapping. Once verified, point make_patches at this dir (or replace
-# the four files in Topo_Attrs/).
+# NOTE: this overwrites the four rasters already in Topo_Attrs_fixed/.
+# Point OUTDIR somewhere new if you want to diff old against new.
 OUTDIR="/nesi/nobackup/uoa04425/zluo784/Exp1/Gisborne_basin/input_files/Topo_Attrs_fixed"
 VAR="Band1"
 

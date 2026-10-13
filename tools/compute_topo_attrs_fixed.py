@@ -3,52 +3,67 @@
 """
 compute_topo_attrs_fixed.py
 
-Rewritten terrain-attribute exporter. Fixes three bugs in the original
-tools/compute_topo_attrs.py that produced Slope_Deg==0 / TWI==ln(8e6) over
-~half of the valid grid (~79% of the Gisborne basin polygon):
+Terrain-attribute exporter for the 8 m Gisborne grid: slope, aspect (as sine
+and cosine) and the topographic wetness index, derived from Elevation.nc.
 
-  BUG A (no-data not recognised):
-      xr.open_dataset(..) with the default mask_and_scale=True turns the
-      DEM's _FillValue (9.96921e+36) into NaN and MOVES the _FillValue
-      attribute into .encoding. The original loop `if k in z.attrs` then
-      never finds it, so `nodata` stays None and no masking happens.
-      richdem detects no-data by equality (cell == no_data); NaN == NaN is
-      always False, so the NaN cells are treated as real terrain, poisoning
-      the Priority-Flood queue and flattening huge regions of the filled DEM.
-    -> FIX: open with mask_and_scale=False, read _FillValue explicitly, build
-       an explicit valid mask, and hand richdem a REAL sentinel no_data value
-       (not NaN) that its equality test can actually match.
+Slope and aspect are computed from the RAW DEM with a self-contained numpy
+Horn (1981) kernel.  richdem is used only for FillDepressions + D8
+FlowAccumulation, and only the wetness index depends on it.
 
-  BUG B (slope/aspect computed on the FILLED DEM):
-      The original took slope/aspect on dem_filled. Depression-filled regions
-      are perfectly horizontal by construction -> slope == 0 there. Standard
-      practice: compute slope/aspect on the ORIGINAL DEM; use the filled DEM
-      only for flow accumulation.
-    -> FIX: slope_deg / aspect are computed on the RAW (masked) DEM.
-       Only TWI uses the filled DEM (for flow accumulation + a well-defined
-       tan(beta) in flat pits).
+Defects fixed in this file, kept on record because each one produced plausible
+looking rasters that were wrong:
 
-  BUG C (cell size / geotransform never set):
-      rd.rdarray(...) had no geotransform ("Warning! No geotransform defined.
-      ... cells are 1x1"), so richdem's Horn slope used a 1 m run instead of
-      8 m -> even the non-zero slopes were inflated (true 20 deg -> ~71 deg),
-      and --dx 8 was only used inside TWI, never for the slope itself.
-    -> FIX: slope/aspect use the true 8 m cell size (Horn finite differences);
-       TWI's specific catchment area uses the true cell size too.
+  A  no-data not recognised.  xr.open_dataset with the default
+     mask_and_scale=True turns the DEM's _FillValue (9.96921e+36) into NaN and
+     moves the attribute into .encoding, so a lookup in .attrs never found it.
+     richdem detects no-data by equality and NaN == NaN is False, so the no-data
+     cells entered Priority-Flood as real terrain.
+     -> open with mask_and_scale=False, read _FillValue explicitly, build an
+        explicit valid mask.
 
-Slope and aspect are computed with a self-contained numpy Horn kernel (the
-same one used to verify the bug), so they do not depend on richdem's
-geotransform handling at all. richdem is used only for FillDepressions +
-FlowAccumulation (its hydrology strength). If richdem is unavailable the TWI
-step is skipped with a warning; slope/aspect are always produced.
+  B  slope and aspect taken on the FILLED DEM.  Filled depressions are
+     horizontal by construction, so slope there is exactly zero.
+     -> slope and aspect come from the raw masked DEM; only the wetness index
+        uses the filled surface, and only for flow accumulation.
 
-Usage (matches the original CLI):
+  C  no geotransform on rd.rdarray, so richdem used a 1 m cell instead of 8 m
+     and inflated every slope by about 8x.
+     -> slope and aspect use the true cell size in a numpy kernel that does not
+        depend on richdem's geotransform handling at all.
+
+  D  the no-data sentinel handed to richdem was a large POSITIVE number.
+     Priority-Flood assumes the opposite: "the NoData value is assumed to be a
+     negative number less than any actual data value" (Barnes2014.hpp).  With a
+     large positive sentinel a no-data cell enters the pit queue at 9.97e36;
+     when it is popped every neighbour satisfies elevation <= nextafter(z), so
+     it is swallowed into the pit, raised to ~9.97e36, and the wave propagates
+     over every cell not yet closed.  Those regions become a flat plateau whose
+     only gradient is the epsilon increment, and D8 there routes by fill order
+     instead of by terrain.  Measured on the rasters this produced: 486 km^2,
+     18.3% of the catchment, and 33.8% of the valid grid.  The log said so:
+     "some depressions rose above the surrounding cells ... 66019736 of
+     98437500".
+     -> RD_NODATA is below every real elevation.  The _FillValue written to the
+        NetCDF outputs is unchanged.
+
+  E  the north-south gradient assumed the wrong y-axis direction.  Elevation.nc
+     stores y ASCENDING (y[0] = 5681183, y[1] = 5681191), so row 0 is south,
+     not north as in the usual GDAL convention.  Slope is unaffected because it
+     takes the magnitude, but the descent azimuth was mirrored about the
+     east-west axis, so the exported cosine of the aspect carried the wrong
+     sign: measured against the steepest-descent neighbour of the raw DEM,
+     corr(Aspect_SIN, truth) = +0.93 and corr(Aspect_COS, truth) = -0.92.
+     -> the y-axis direction is read from the coordinate variable and the Horn
+        kernel is signed from it.
+
+Usage:
   python compute_topo_attrs_fixed.py \
     --input  /.../input_files/Elevation.nc \
     --var    Band1 \
-    --outdir /.../input_files/Topo_Attrs \
+    --outdir /.../input_files/Topo_Attrs_fixed \
     --dx 8
 """
+
 
 import os
 import argparse
@@ -56,7 +71,7 @@ import numpy as np
 import xarray as xr
 
 try:
-    import rioxarray as rxr  # noqa: F401  (registers .rio accessor)
+    import rioxarray as rxr  # noqa: F401  (registers the .rio accessor)
     _HAS_RIO = True
 except Exception:
     _HAS_RIO = False
@@ -68,42 +83,38 @@ except Exception:
     _HAS_RICHDEM = False
 
 
-FILL_SENTINEL = np.float32(9.96921e36)  # keep the same _FillValue as Elevation.nc
+FILL_SENTINEL = np.float32(9.96921e36)   # _FillValue of the NetCDF outputs
+RD_NODATA     = -1.0e6                   # sentinel handed to richdem: below every real elevation
 
 
-# --------------------------------------------------------------------------- #
-# Horn (1981) 3x3 finite-difference terrain attributes on the RAW DEM.
-# `z` is float64 with np.nan at no-data. `cs` is the cell size in metres.
-# Returns slope in degrees, plus sin/cos of aspect (azimuth of steepest
-# descent, measured clockwise from north). Any output cell whose 3x3 window
-# touches a no-data cell (or the grid edge) is set to NaN.
-# --------------------------------------------------------------------------- #
-def horn_attrs(z, cs):
+def horn_attrs(z, cs, y_ascending):
+    """Horn (1981) 3x3 slope and aspect on the raw DEM.
+
+    `z` is float64 with np.nan at no-data, `cs` the cell size in metres.
+    `y_ascending` is True when the row index increases northward.
+    Returns slope in degrees and the sine and cosine of the azimuth of steepest
+    descent, measured clockwise from north.  Any cell whose 3x3 window touches
+    a no-data cell or the grid edge is NaN.
+    """
     ny, nx = z.shape
-    slope_deg = np.full((ny, nx), np.nan, dtype=np.float64)
-    asin = np.full((ny, nx), np.nan, dtype=np.float64)
-    acos = np.full((ny, nx), np.nan, dtype=np.float64)
+    slope_deg = np.full((ny, nx), np.nan)
+    asin = np.full((ny, nx), np.nan)
+    acos = np.full((ny, nx), np.nan)
 
-    # 3x3 neighbourhood of the interior (row 0 = north because dy < 0).
-    #   a b c      NW N NE
-    #   d e f  =    W . E
-    #   g h i      SW S SE
     a = z[:-2, :-2]; b = z[:-2, 1:-1]; c = z[:-2, 2:]
     d = z[1:-1, :-2];                  f = z[1:-1, 2:]
     g = z[2:,  :-2]; h = z[2:,  1:-1]; i = z[2:,  2:]
 
-    # east-west gradient (+x = east) and north-south gradient (+y = north)
-    dz_dx = ((c + 2 * f + i) - (a + 2 * d + g)) / (8.0 * cs)
-    dz_dy = ((a + 2 * b + c) - (g + 2 * h + i)) / (8.0 * cs)
+    dz_dx = ((c + 2 * f + i) - (a + 2 * d + g)) / (8.0 * cs)          # +x = east
+    # rows -1 and +1 are south and north when y ascends, and the reverse when it descends
+    dz_dy = ((g + 2 * h + i) - (a + 2 * b + c)) / (8.0 * cs)          # +y = north
+    if not y_ascending:
+        dz_dy = -dz_dy
 
-    slope = np.degrees(np.arctan(np.sqrt(dz_dx * dz_dx + dz_dy * dz_dy)))
-
-    # azimuth of steepest DESCENT = direction of -grad, clockwise from north.
-    azimuth = np.arctan2(-dz_dx, -dz_dy)  # 0 = north, +pi/2 = east
+    slope = np.degrees(np.arctan(np.sqrt(dz_dx * dz_dx + dz_dy * dz_dy)))   # HEAD form (byte-identity for verify)
+    azimuth = np.arctan2(-dz_dx, -dz_dy)                              # clockwise from north
     s = np.sin(azimuth)
     co = np.cos(azimuth)
-
-    # flat cells have no defined aspect -> encode as (0, 0)
     flat = slope == 0
     s = np.where(flat, 0.0, s)
     co = np.where(flat, 0.0, co)
@@ -115,9 +126,9 @@ def horn_attrs(z, cs):
 
 
 def slope_radians_from(z, cs):
-    """Horn slope in radians on `z` (used for TWI's tan(beta))."""
+    """Horn slope in radians on `z`, for the tan(beta) of the wetness index."""
     ny, nx = z.shape
-    out = np.full((ny, nx), np.nan, dtype=np.float64)
+    out = np.full((ny, nx), np.nan)
     a = z[:-2, :-2]; b = z[:-2, 1:-1]; c = z[:-2, 2:]
     d = z[1:-1, :-2];                  f = z[1:-1, 2:]
     g = z[2:,  :-2]; h = z[2:,  1:-1]; i = z[2:,  2:]
@@ -127,24 +138,84 @@ def slope_radians_from(z, cs):
     return out
 
 
+def read_geotransform(ds, var, cs):
+    """GeoTransform handed to richdem: from the DEM variable or global attrs, else a
+    north-up `cs` grid at the origin (what main() has always used)."""
+    gt = None
+    for src in (ds[var].attrs, ds.attrs):
+        if "GeoTransform" in src:
+            try:
+                gt = [float(t) for t in str(src["GeoTransform"]).split()]
+            except Exception:
+                gt = None
+    return gt if (gt and len(gt) == 6) else [0.0, cs, 0.0, 0.0, 0.0, -cs]
+
+
+def compute_twi(z, valid, cs, geotransform, verbose=True):
+    """Topographic wetness index ln(a / tan(beta)) on the DEM `z` (float64, NaN at no-data).
+
+    a = D8 flow accumulation (richdem, on the depression-filled DEM with epsilon) x cell size;
+    beta = Horn slope of the RAW DEM.  Returns float64 with NaN outside `valid`.
+    Factored out of main() unchanged so tools/probe_static.py recomputes TWI with the
+    identical code path.  Requires richdem.
+    """
+    if not _HAS_RICHDEM:
+        raise RuntimeError("richdem is required for the wetness index")
+    zmax = float(np.nanmax(z))
+    z_rd = np.where(valid, z, RD_NODATA).astype(np.float64)
+    dem = rd.rdarray(z_rd, no_data=RD_NODATA)
+    dem.geotransform = geotransform
+
+    try:
+        dem_filled = rd.FillDepressions(dem, epsilon=True, in_place=False)
+    except TypeError:
+        dem_filled = rd.FillDepressions(dem, in_place=False)
+
+    filled = np.asarray(dem_filled, dtype=np.float64)
+    rise = filled[valid] - z[valid]
+    if verbose:
+        print(f"[check] fill rise over valid cells: max={np.nanmax(rise):.3f} m  "
+              f"mean={np.nanmean(rise):.4f} m  cells raised = {100.0*np.mean(rise > 0):.2f}%")
+    if np.nanmax(filled[valid]) > zmax + 1e4:
+        raise SystemExit("[fatal] the filled surface exceeds the terrain by more than 10 km; "
+                         "the no-data sentinel was not honoured")
+
+    acc_cells = rd.FlowAccumulation(dem_filled, method='D8')
+    acc = np.asarray(acc_cells, dtype=np.float64)
+    big = float(np.mean(acc[valid] >= 1000))
+    if verbose:
+        print(f"[check] cells with accumulation >= 1000 = {100*big:.2f}% of valid "
+              f"(a healthy D8 network is a few percent; a value above ~20% means the routing "
+              f"is running over a flat plateau rather than over the terrain)")
+
+    slope_rad = slope_radians_from(z, cs)
+    eps = 1e-6
+    a_spec = acc * cs                       # upslope contributing area per unit contour length
+    tanb = np.tan(slope_rad)
+    twi = np.log(np.maximum(a_spec, eps) / np.maximum(tanb, eps))
+    twi[~valid] = np.nan
+    const = float(np.mean(np.abs(twi[valid & np.isfinite(twi)] - np.log(cs / eps)) < 1e-3))
+    if verbose:
+        print(f"[info] TWI computed (acc max={np.nanmax(acc):.0f} cells; "
+              f"TWI==ln(cs/eps) spike = {100*const:.3f}% of valid, want <<1%)")
+    return twi
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--input", required=True, help="DEM NetCDF (Elevation.nc)")
-    ap.add_argument("--var", default="Band1", help="DEM variable (default Band1)")
-    ap.add_argument("--outdir", required=True, help="output dir")
-    ap.add_argument("--dx", type=float, default=8.0, help="grid size in metres")
+    ap.add_argument("--input", required=True)
+    ap.add_argument("--var", default="Band1")
+    ap.add_argument("--outdir", required=True)
+    ap.add_argument("--dx", type=float, default=8.0)
     args = ap.parse_args()
 
     os.makedirs(args.outdir, exist_ok=True)
     cs = float(args.dx)
 
-    # ---- read DEM WITHOUT auto-masking so _FillValue stays in .attrs ------- #
     ds = xr.open_dataset(args.input, mask_and_scale=False)
     var = args.var if args.var in ds.data_vars else list(ds.data_vars)[0]
     z_da = ds[var]
 
-    # explicit no-data value (attrs first, then encoding, then a huge-value
-    # fallback that also traps GDAL's 9.96921e+36)
     nodata = None
     for src in (z_da.attrs, z_da.encoding):
         for k in ("_FillValue", "missing_value", "nodata"):
@@ -156,82 +227,35 @@ def main():
         if nodata is not None:
             break
 
+    ydim = z_da.dims[0]
+    yv = np.asarray(ds[ydim].values, dtype=np.float64)
+    y_ascending = bool(yv[1] > yv[0])
+
     z = np.array(z_da.values, dtype=np.float64)
     valid = np.isfinite(z) & (np.abs(z) < 1e30)
     if nodata is not None and np.isfinite(nodata):
         valid &= (z != nodata)
     z[~valid] = np.nan
     n_valid = int(valid.sum())
+    zmin = float(np.nanmin(z)); zmax = float(np.nanmax(z))
     print(f"[info] DEM {z.shape}  valid={n_valid:,} ({100.0*n_valid/z.size:.1f}%)  "
           f"nodata={nodata}  cell={cs} m")
+    print(f"[info] y axis is {'ascending (row 0 = south)' if y_ascending else 'descending (row 0 = north)'}; "
+          f"elevation range {zmin:.2f} .. {zmax:.2f} m")
+    if RD_NODATA >= zmin:
+        raise SystemExit(f"[fatal] RD_NODATA={RD_NODATA} is not below the minimum elevation {zmin}")
 
-    # ---- slope / aspect on the RAW DEM (fix B + fix C) --------------------- #
-    slope_deg, aspect_sin, aspect_cos = horn_attrs(z, cs)
-
-    zero_pct = 100.0 * np.mean(slope_deg[valid & np.isfinite(slope_deg)] == 0) \
-        if n_valid else float("nan")
-    print(f"[info] slope zero-fraction over valid = {zero_pct:.3f}%  "
+    slope_deg, aspect_sin, aspect_cos = horn_attrs(z, cs, y_ascending)
+    print(f"[info] slope zero-fraction over valid = "
+          f"{100.0*np.mean(slope_deg[valid & np.isfinite(slope_deg)] == 0):.3f}%  "
           f"(median={np.nanmedian(slope_deg[valid]):.2f} deg)")
 
-    # ---- TWI: FillDepressions + FlowAccumulation on the FILLED DEM --------- #
     twi = None
     if _HAS_RICHDEM:
-        # hand richdem a REAL sentinel no_data (fix A) + the true geotransform.
-        z_rd = np.where(valid, z, float(FILL_SENTINEL)).astype(np.float64)
-        dem = rd.rdarray(z_rd, no_data=float(FILL_SENTINEL))
-        # GeoTransform of Elevation.nc: [x0, dx, 0, y0, 0, dy]
-        gt = None
-        for src in (ds[var].attrs, ds.attrs):
-            if "GeoTransform" in src:
-                try:
-                    gt = [float(t) for t in str(src["GeoTransform"]).split()]
-                except Exception:
-                    gt = None
-            for vn in ds.variables:
-                a = ds[vn].attrs
-                if "GeoTransform" in a and gt is None:
-                    try:
-                        gt = [float(t) for t in str(a["GeoTransform"]).split()]
-                    except Exception:
-                        gt = None
-        if gt and len(gt) == 6:
-            dem.geotransform = gt
-        else:
-            dem.geotransform = [0.0, cs, 0.0, 0.0, 0.0, -cs]
-
-        # EPSILON fill: adds a tiny monotone drainage gradient so FlowAccumulation
-        # can route across would-be flats. Plain FillDepressions can leave an
-        # enclosed sub-basin (e.g. a high massif whose real outlet is cut off by
-        # the nodata boundary) perfectly flat -> D8 has no direction -> acc stalls
-        # at 1 -> TWI pinned to ln(cs/eps)=ln(8e6) over the whole region. Verified
-        # this happened to a 300 km^2 high massif with plain fill.
-        try:
-            dem_filled = rd.FillDepressions(dem, epsilon=True, in_place=False)
-        except TypeError:
-            dem_filled = rd.FillDepressions(dem, in_place=False)
-        acc_cells = rd.FlowAccumulation(dem_filled, method='D8')
-
-        # tan(beta) = LOCAL surface slope from the RAW DEM (standard TWI
-        # definition, e.g. Beven & Kirkby / SAGA / GRASS r.topidx). NOT the
-        # filled DEM: filled/flattened cells have beta=0 -> tan(beta) clamped to
-        # eps -> a spurious constant-high TWI on real terrain. z already carries
-        # NaN at nodata, so edge cells fall out as NaN (masked below).
-        slope_rad = slope_radians_from(z, cs)
-
-        eps = 1e-6
-        a_spec = np.asarray(acc_cells, dtype=np.float64) * cs   # specific catchment area
-        tanb = np.tan(slope_rad)
-        twi = np.log(np.maximum(a_spec, eps) / np.maximum(tanb, eps))
-        twi[~valid] = np.nan
-        const = float(np.mean(np.abs(twi[valid & np.isfinite(twi)] - np.log(cs / eps)) < 1e-3)) \
-            if n_valid else float("nan")
-        print(f"[info] TWI computed (acc max={np.nanmax(a_spec)/cs:.0f} cells; "
-              f"TWI==ln(cs/eps) sanity spike = {100*const:.3f}% of valid, want <<1%)")
+        twi = compute_twi(z, valid, cs, read_geotransform(ds, var, cs))
     else:
-        print("[warn] richdem not available -> TWI NOT written "
-              "(run this step on NeSI where richdem is installed).")
+        print("[warn] richdem not available -> TWI NOT written")
 
-    # ---- write outputs ----------------------------------------------------- #
     coords = {d: ds[d] for d in z_da.dims if d in ds.coords}
     dims = z_da.dims
 
@@ -244,8 +268,7 @@ def main():
                 pass
         da.encoding["_FillValue"] = float(FILL_SENTINEL)
         da.to_netcdf(os.path.join(args.outdir, fname))
-        v = np.asarray(arr, dtype=np.float64)
-        v = v[np.isfinite(v)]
+        v = np.asarray(arr, dtype=np.float64); v = v[np.isfinite(v)]
         print(f"[write] {fname:16s} min/max = {v.min():.4f} / {v.max():.4f}")
 
     write(slope_deg, "slope_deg", "Slope_Deg.nc")

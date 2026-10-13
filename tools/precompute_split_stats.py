@@ -47,6 +47,7 @@ import json
 import math
 import argparse
 import random
+from collections import defaultdict
 from typing import Dict, List, Tuple
 
 import numpy as np
@@ -699,7 +700,16 @@ def main():
     ap.add_argument('--reuse_split_from', type=str, default='',
                     help='Path to an existing split_stats_*.json (e.g. the h one). Its train/val '
                          'split is adopted by patch identity (scenario,t,patch_row,patch_col), so '
-                         'u/v train/val on the SAME physical patches as h. Requires the same index_csv.')
+                         'u/v train/val on the SAME physical patches as h. Requires the same index_csv '
+                         'unless --reuse_split_index_csv is given.')
+    ap.add_argument('--reuse_split_index_csv', type=str, default='',
+                    help='Index CSV that the --reuse_split_from row ids refer to, when that split belongs to '
+                         'ANOTHER dataset (e.g. ds8 index.csv for the Paper 2 M3 Row B datasets, which tile '
+                         'the domain identically). Row ids are resolved to (scenario,t,patch_row,patch_col) '
+                         'through this CSV; omit it to resolve them through --index_csv (same-dataset u/v reuse).')
+    ap.add_argument('--allow_missing_reference_tiles', action='store_true',
+                    help='Cross-dataset reuse only: accept reference (scenario,t,row,col) patches that this dataset '
+                         'lacks (default: hard error, review A5b).')
     ap.add_argument('--bins', type=int, default=8192)
 
     # h only
@@ -770,9 +780,44 @@ def main():
         if 'split' not in ref_meta:
             raise RuntimeError(f'[ERROR] --reuse_split_from missing "split": {args.reuse_split_from}')
 
-        id2pid = {int(r['_row_id']): _patch_identity(r) for r in rows_all}
+        if args.reuse_split_index_csv:
+            # Cross-dataset reuse: the reference row ids index the REFERENCE dataset's CSV.
+            if not os.path.isfile(args.reuse_split_index_csv):
+                raise FileNotFoundError(f'[ERROR] --reuse_split_index_csv not found: {args.reuse_split_index_csv}')
+            ref_rows_all = load_index_csv(args.reuse_split_index_csv)
+            id2row = {int(r['_row_id']): r for r in ref_rows_all}
+            ref_ids = [int(x) for x in ref_meta['split']['train']] + \
+                      [int(x) for x in ref_meta['split'].get('val', [])]
+            bad = [i for i in ref_ids
+                   if i not in id2row
+                   or str(id2row[i].get('var', '')).lower() != args.target_var
+                   or int(id2row[i]['filtered_out']) != 0]
+            if bad:
+                raise RuntimeError(
+                    f'[ERROR] {len(bad)} of {len(ref_ids)} reference split ids do not point at an unfiltered '
+                    f'{args.target_var} row of --reuse_split_index_csv (e.g. id {bad[0]}). The reference JSON and '
+                    f'index CSV do not belong together.')
+            id2pid = {i: _patch_identity(id2row[i]) for i in ref_ids}
+            # (A5a) the statistics recipe must be the reference's, so every fine-grid quantity is comparable
+            cli = {
+                'target_var': args.target_var, 'aux_vars': aux_vars, 'split_by': args.by,
+                'h_transform': args.h_transform, 'h_tau': float(args.h_tau), 'h_q_list': q_list,
+                'h_asinh_scale_scope': args.h_asinh_scale_scope if args.h_transform == 'asinh' else None,
+                'compute_h_flood_intervals': bool(args.compute_h_flood_intervals),
+                'h_flood_interval_thresholds': (list(parse_three_floats(args.h_flood_interval_thresholds))
+                                                if args.compute_h_flood_intervals else None),
+            }
+            diff = {k: (ref_meta[k], v) for k, v in cli.items() if k in ref_meta and ref_meta[k] != v}
+            if diff:
+                raise RuntimeError(f'[ERROR] recipe differs from the reference JSON (ref, cli): {diff}')
+            print(f'[reuse_split] recipe identical to the reference for: '
+                  f'{sorted(k for k in cli if k in ref_meta)}')
+        else:
+            id2pid = {int(r['_row_id']): _patch_identity(r) for r in rows_all}
         ref_train_pids = {id2pid[i] for i in (int(x) for x in ref_meta['split']['train']) if i in id2pid}
         ref_val_pids = {id2pid[i] for i in (int(x) for x in ref_meta['split'].get('val', [])) if i in id2pid}
+        if ref_train_pids & ref_val_pids:
+            raise RuntimeError('[ERROR] reference split has patch identities in BOTH train and val.')
 
         train_ids = set(int(r['_row_id']) for r in rows if _patch_identity(r) in ref_train_pids)
         val_ids = set(int(r['_row_id']) for r in rows if _patch_identity(r) in ref_val_pids)
@@ -786,6 +831,33 @@ def main():
                 f'in --reuse_split_from. Are index_csv / filtering consistent with the reference?'
             )
 
+        # Coverage report: reference patches that this dataset does NOT have (e.g. fewer
+        # coarse time steps). Informational -- the copied split is still exact on the overlap.
+        own_pids = {_patch_identity(r) for r in rows}
+        miss_tr = ref_train_pids - own_pids
+        miss_va = ref_val_pids - own_pids
+        print(f'[reuse_split] reference train/val patches: {len(ref_train_pids)}/{len(ref_val_pids)}; '
+              f'this dataset train/val: {len(train_ids)}/{len(val_ids)}; '
+              f'reference patches missing here: train {len(miss_tr)}, val {len(miss_va)}')
+        if miss_tr or miss_va:
+            by_sc = defaultdict(int)
+            for p in miss_tr | miss_va:
+                by_sc[p[0]] += 1
+            print('[reuse_split] missing per scenario: ' + ', '.join(f'{k}:{v}' for k, v in sorted(by_sc.items())))
+        if args.reuse_split_index_csv:
+            # (A5c) same tile set; (A5b) no reference patch missing unless explicitly allowed
+            ref_tiles = {p[2:] for p in ref_train_pids | ref_val_pids}
+            own_tiles = {p[2:] for p in own_pids}
+            if ref_tiles != own_tiles:
+                raise RuntimeError(f'[ERROR] tile sets differ: reference {len(ref_tiles)} (row,col) tiles, this dataset '
+                                   f'{len(own_tiles)}; only-ref {sorted(ref_tiles - own_tiles)[:5]}, '
+                                   f'only-here {sorted(own_tiles - ref_tiles)[:5]}')
+            print(f'[reuse_split] tile set identical to the reference ({len(own_tiles)} (row,col) tiles)')
+            if (miss_tr or miss_va) and not args.allow_missing_reference_tiles:
+                raise RuntimeError(f'[ERROR] {len(miss_tr)} train / {len(miss_va)} val reference patches are missing in '
+                                   f'this dataset (see per-scenario line above). Pass --allow_missing_reference_tiles '
+                                   f'only if that is understood and intended.')
+
         meta = {
             "seed": args.seed,
             "val_ratio": args.val_ratio,
@@ -793,6 +865,8 @@ def main():
             "split": {"train": sorted(list(train_ids)), "val": sorted(list(val_ids))},
             "split_reused_from": os.path.abspath(args.reuse_split_from),
         }
+        if args.reuse_split_index_csv:
+            meta["split_reused_index_csv"] = os.path.abspath(args.reuse_split_index_csv)
     elif os.path.isfile(args.out_json):
         with open(args.out_json, 'r') as f:
             meta = json.load(f)
