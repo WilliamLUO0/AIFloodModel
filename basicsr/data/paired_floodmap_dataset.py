@@ -236,6 +236,21 @@ class PairedFloodMapDataset(data.Dataset):
         else:
             raise ValueError(f'[ERROR] Unknown phase: {self.phase}')
 
+        # Paper 2 S8 (Flood-DM): fixed, seeded subset of a val/test split (sampling a diffusion model on the full
+        # split during training is too slow). Default off -> behaviour unchanged.
+        if opt.get('subset_n', None) is not None:
+            if self.phase == 'train':
+                raise ValueError('[PairedFloodMapDataset] subset_n is for val/test datasets only')
+            n_sub = int(opt['subset_n'])
+            if not 0 < n_sub <= len(self.rows):
+                raise ValueError(f'[PairedFloodMapDataset] subset_n={n_sub} must be in [1, {len(self.rows)}]')
+            pick = np.sort(np.random.default_rng(int(opt.get('subset_seed', 0))).choice(len(self.rows), n_sub,
+                                                                                       replace=False))
+            self.rows = [self.rows[i] for i in pick]
+            get_root_logger().info(
+                f'[PairedFloodMapDataset] subset_n={n_sub}, subset_seed={opt.get("subset_seed", 0)}: '
+                f'first row ids {[int(r["_row_id"]) for r in self.rows[:5]]}')
+
         _wet_th = opt.get('wet_threshold', None)
         self.wet_threshold = float(_wet_th) if _wet_th is not None else None
 
