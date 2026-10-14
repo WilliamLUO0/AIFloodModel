@@ -4,9 +4,9 @@
 #SBATCH --partition=milan,genoa
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=4
+#SBATCH --cpus-per-task=2
 #SBATCH --mem=20G
-#SBATCH --time=48:00:00
+#SBATCH --time=24:00:00
 #SBATCH --output=logs/%x_%j.out
 #SBATCH --error=logs/%x_%j.err
 
@@ -64,10 +64,12 @@ SCENARIOS=(
 # so a timeout loses only a factor-ablation set, never ds8. To split across jobs,
 # comment factors out and submit separately.
 FACTORS=(
-  "8:dx64:5:ds8"
-  "16:dx128:2:ds16"
-  "4:dx32:10:ds4"
-  "2:dx16:25:ds2"
+  # Completed in the 2-day run (ds8 -> ds16 -> ds4 all finished before ds2 started).
+  # Re-enable these only if you need to rebuild them again.
+  # "8:dx64:5:ds8"
+  # "16:dx128:2:ds16"
+  # "4:dx32:10:ds4"
+  "2:dx16:25:ds2"          # only ds2 was cut off by walltime -> rerun just this
 )
 
 for spec in "${FACTORS[@]}"; do

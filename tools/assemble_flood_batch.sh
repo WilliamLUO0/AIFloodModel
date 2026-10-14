@@ -10,7 +10,7 @@
 #SBATCH --partition=milan,genoa
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=4
+#SBATCH --cpus-per-task=2
 #SBATCH --mem=48G
 #SBATCH --time=6:00:00
 #SBATCH --output=logs/%x_%j.out
@@ -41,9 +41,9 @@ PER_TS_NPY=1           # 1 to also dump one assembled .npy per timestep
 # format:  eval_tag : test-dataset-dir : scenario-token (as in the patch core names)
 TESTSETS=(
   # test2y42h0c:testdataset_2y42h0c:2y_42h_0c
-  # test100y42h0c:testdataset_100y42h0c:100y_42h_0c
+  test100y42h0c:testdataset_100y42h0c:100y_42h_0c
   # test1000y42h0c:testdataset_1000y42h0c:1000y_42h_0c
-  gabrielle:testdataset_gabrielle:gabrielle
+  # gabrielle:testdataset_gabrielle:gabrielle
 )
 # =====================================================
 if [[ "$VAR" == "h" ]]; then EXPSUF=""; else EXPSUF="_${VAR}"; fi

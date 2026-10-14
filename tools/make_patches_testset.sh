@@ -4,9 +4,9 @@
 #SBATCH --partition=milan,genoa
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=4
+#SBATCH --cpus-per-task=2
 #SBATCH --mem=20G
-#SBATCH --time=12:00:00
+#SBATCH --time=24:00:00
 #SBATCH --output=logs/%x_%j.out
 #SBATCH --error=logs/%x_%j.err
 
@@ -57,23 +57,37 @@ JOBS=(
   # factor-8 main-model test suite, dx64 min5 -> dx8, no suffix.
   # 2y/100y/1000y were built earlier with the OLD broken topo -> rebuilt here;
   # 5y/10y/50y are new. gabrielle deferred (sim not finished).
-  "2y_42h_0c:8:dx64:5:"
-  "5y_42h_0c:8:dx64:5:"
-  "10y_42h_0c:8:dx64:5:"
-  "50y_42h_0c:8:dx64:5:"
-  "100y_42h_0c:8:dx64:5:"
-  "1000y_42h_0c:8:dx64:5:"
+  # "2y_42h_0c:8:dx64:5:"
+  # "5y_42h_0c:8:dx64:5:"
+  # "10y_42h_0c:8:dx64:5:"
+  # "50y_42h_0c:8:dx64:5:"
+  # "100y_42h_0c:8:dx64:5:"
+  # "1000y_42h_0c:8:dx64:5:"
   # "gabrielle:8:dx64:5:"        # ds8 gabrielle test set — deferred, sim not finished
   # factor 2/4/16 downscaling-factor ablation on 100y_42h
-  "100y_42h_0c:2:dx16:25:_ds2"
-  "100y_42h_0c:4:dx32:10:_ds4"
-  "100y_42h_0c:16:dx128:2:_ds16"
+  # "100y_42h_0c:2:dx16:25:_ds2"
+  # "100y_42h_0c:4:dx32:10:_ds4"
+  # "100y_42h_0c:16:dx128:2:_ds16"
   # gabrielle ds2/4/16: COMMENTED OUT — gabrielle BG-Flood simulation not finished
   # yet. Uncomment once its dx8/dx16/dx32/dx128 sims + isolated-cell filters exist.
-  # "gabrielle:2:dx16:25:_ds2"
-  # "gabrielle:4:dx32:10:_ds4"
-  # "gabrielle:16:dx128:2:_ds16"
+  # "gabrielle:2:dx16:25:_ds2"      # built
+  # "gabrielle:4:dx32:10:_ds4"      # built
+  # "gabrielle:16:dx128:2:_ds16"    # built
+  # --- Paper 2 S4 beyond-design: 1000y_48h x1.25 / x1.5 / x2 (x3 optional), main model s = 8, h only (6th field) ---
+  # "1000y_48h_0c_x1p25:8:dx64:5::h"
+  # "1000y_48h_0c_x1p5:8:dx64:5::h"
+  # "1000y_48h_0c_x2p0:8:dx64:5::h"
+  # "1000y_48h_0c_x3p0:8:dx64:5::h"     # OPTIONAL stress test
+  # --- Paper 2 S4/S5 x1 / single-peak column: the TRAINING scenarios as full maps, labelled "seen scenario"
+  #     (train + val tiles inside; their dx8 min100 / dx64 min5 filtered files already exist) ---
+  # "1000y_48h_0c:8:dx64:5::h"
+  # "100y_48h_0c:8:dx64:5::h"
+  # --- Paper 2 S5 unseen rainfall pattern: 100y_48h double peak 1:1 / 2:1, main model s = 8, h only ---
+  # "100y_48h_0c_dp11:8:dx64:5::h"
+  # "100y_48h_0c_dp21:8:dx64:5::h"
 )
+# Spec "scenario:factor:coarse_dx:coarse_minpatch:suffix[:vars]"; vars (space-separated, optional) overrides the
+# default (h u v for factor 8, h otherwise).
 # NOTE: topo repointed to Topo_Attrs_fixed (Slope/Aspect/TWI bug fix). All active
 # jobs above are rebuilt/built with the fixed topo. The only deferred sets are the
 # gabrielle ones (ds8 + ds2/4/16): uncomment them once gabrielle's BG-Flood sim +
@@ -81,11 +95,16 @@ JOBS=(
 # =============================================================================================
 
 for spec in "${JOBS[@]}"; do
-  IFS=":" read -r SCEN SCALE CDX CMIN SUFFIX <<< "${spec}"
+  IFS=":" read -r SCEN SCALE CDX CMIN SUFFIX VARSPEC <<< "${spec}"
   TAG="${SCEN//_/}"                          # 5y_42h_0c -> 5y42h0c ; gabrielle -> gabrielle
   OUT_DIR="${BASE_OUT}/testdataset_${TAG}${SUFFIX}"
   COARSE_TMPL="${BASE_RESULTS}/{scenario}/${CDX}/BGout_filtered_thr0p1_min${CMIN}.nc"
-  if [[ "${SCALE}" == "8" ]]; then VARS=(h u v); else VARS=(h); fi
+  if [[ -n "${VARSPEC:-}" ]]; then read -r -a VARS <<< "${VARSPEC}"
+  elif [[ "${SCALE}" == "8" ]]; then VARS=(h u v); else VARS=(h); fi
+  if [[ -e "${OUT_DIR}" ]]; then
+    echo "[error] ${OUT_DIR} already exists -> rm -rf it first if you want to rebuild (or comment its line)." >&2
+    exit 1
+  fi
 
   echo "============================================================"
   echo "[info] factor ${SCALE} | coarse=${CDX} (min${CMIN}) -> fine dx8 | patch_fine=$((64 * SCALE))"

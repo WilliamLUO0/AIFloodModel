@@ -4,7 +4,7 @@
 #SBATCH --partition=milan,genoa
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=4
+#SBATCH --cpus-per-task=2
 #SBATCH --mem=32G
 #SBATCH --time=24:00:00
 #SBATCH --output=logs/%x_%j.out
@@ -35,7 +35,7 @@ export NUMEXPR_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 BASE_OUT="/nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel"
 
 DATASETS=(
-  "dataset_ds8_filtered_thr0p1_min5100_full"
+  # "dataset_ds8_filtered_thr0p1_min5100_full"
   "dataset_ds16_filtered_thr0p1_min2100_full"
   "dataset_ds4_filtered_thr0p1_min10100_full"
   "dataset_ds2_filtered_thr0p1_min25100_full"
