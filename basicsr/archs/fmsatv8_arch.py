@@ -7,7 +7,8 @@ TG-SAT  = FloodMapPFTV8 (TG-PFT, fmpftv8_arch.py) with the PFT deep body (patch_
           Blocks with the released SAA) -> LayerNorm. Everything else -- topography encoder + skips, bottleneck fusion,
           AOI gate, U-shaped decoder, bicubic global residual, depth + ordinal flood heads -- is V8 line for line.
 SAT-V7  = FloodMapPFTV7 (single fusion: statics fused once, PixelShuffle upsampler, no skips, no global residual)
-          with the same body swap; AOI gate off in the S8 row (mirrors Paper 1's final 02_FMPFTV7 row).
+          with the same body swap; network_g = the committed 02_FMPFTV7 row (AOI gate on, use_upsample_act true)
+          with the SAT body keys, so SAT-V7 -> TG-SAT changes exactly what PFT-V7 -> TG-PFT changes.
 
 Spec and reference implementation: paper2_S8/S8_TGSAT.md (Appendix A; setting A, ruling 2026-10-14). Differences to
 Appendix A, all behaviour-neutral: the fine/coarse size check raises RuntimeError like V8 (not assert), and unknown

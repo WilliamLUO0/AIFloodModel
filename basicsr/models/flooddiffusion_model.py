@@ -19,7 +19,10 @@ Data side = ours (sampler, flips/rotations, batch, seed, inputs); model side = t
     generator seeded by seed_base + crc32(scenario|t|row|col|var) (+ sample index): reproducible, independent of the
     patch order / subset / GPU split. n_samples > 1 -> mean of the samples in metres (SI row);
   * validation: during training (called on rank 0 only by train_flood_map_v2.py) plain loop; at test time
-    (test_flood_map.py calls every rank) the patches are split over the ranks and the metric sums are all-reduced.
+    (test_flood_map.py calls every rank) the patches are split over the ranks and the metric sums are all-reduced;
+  * resume (test only, opt-in, added 2026-10-14 by the discussion-session review): `diffusion.resume_vis_dir` = the
+    visualization/ folder of an archived, killed run -> its finished patches are moved over instead of re-sampled
+    (a full val split at T_s >= 500 does not fit one 24 h job).
 """
 import math
 import os
@@ -85,6 +88,11 @@ class FloodDiffusionModel(FMSRModel):
         self.t_start = int(d['t_start'])
         self.n_samples = int(d.get('n_samples', 1))
         self.seed_base = int(d.get('seed_base', opt.get('manual_seed', 0) or 0))
+        # Resume a killed inference job (opt-in, test only): BasicSR archives an existing results folder at start-up
+        # (make_exp_dirs -> mkdir_and_rename), so point `resume_vis_dir` at the ARCHIVED run's visualization/ folder.
+        # Patches whose .npy is found there (same file name, loadable, right shape, finite) are moved into the new
+        # folder instead of being re-sampled. The per-patch seeds make a resumed run identical to an uninterrupted one.
+        self.resume_vis_dir = d.get('resume_vis_dir', None) or None
         if not 0 <= self.t_start <= self.T or self.n_samples < 1:
             raise ValueError(f'[FloodDiffusionModel] t_start must be in [0, {self.T}] and n_samples >= 1')
         logger = get_root_logger()
@@ -241,6 +249,31 @@ class FloodDiffusionModel(FMSRModel):
             net.train()
 
     # ------------------------------------------------------------------ validation
+    def _map_path(self, current_iter):
+        """(save_dir, file name) of this patch's prediction -- the FMSRModel naming used by eval_flood.py."""
+        m = self.meta
+        flood_map_name = osp.splitext(osp.basename(self.first_scalar(m.get('coarse_path'), name='coarse_path')))[0]
+        fname = (f"{self.first_scalar(m.get('var'), name='var')}_{self.first_scalar(m.get('scenario'), name='scenario')}_"
+                 f"{self.first_scalar(m.get('t'), name='t')}_r{int(self.first_scalar(m.get('row'), name='row')):03d}_"
+                 f"c{int(self.first_scalar(m.get('col'), name='col')):03d}_s{int(self.first_scalar(m.get('downscale'), name='downscale'))}"
+                 f"_{current_iter}.npy")
+        return osp.join(self.opt['path']['visualization'], flood_map_name), fname
+
+    def _take_resumed(self, save_dir, fname):
+        """Move a finished prediction of an archived run into this run's folder; None if absent or unusable."""
+        src = osp.join(self.resume_vis_dir, osp.basename(save_dir), fname)
+        if not osp.isfile(src):
+            return None
+        try:
+            arr = np.load(src)
+        except Exception:
+            return None
+        if arr.shape != tuple(self.fine_fm.shape) or not np.isfinite(arr).all():
+            return None
+        os.makedirs(save_dir, exist_ok=True)
+        os.replace(src, osp.join(save_dir, fname))
+        return torch.from_numpy(arr).to(self.device)
+
     def dist_validation(self, dataloader, current_iter, tb_logger, save_flood_map):
         if self.is_train:   # train_flood_map_v2.py calls validation on rank 0 only -> no collectives
             if self.opt['rank'] == 0:
@@ -270,11 +303,21 @@ class FloodDiffusionModel(FMSRModel):
         get_root_logger().info(f'[FloodDiffusionModel] {dataset_name}: {len(idx)} of {len(ds)} patches on rank {rank}/{world}, '
                                f't_start={self.t_start}, n_samples={self.n_samples}, seed_base={self.seed_base}')
         pbar = tqdm(total=len(idx), unit='patch') if (self.opt['val'].get('pbar', False) and rank == 0) else None
+        if self.resume_vis_dir is not None and (self.is_train or not save_flood_map):
+            raise ValueError('[FloodDiffusionModel] diffusion.resume_vis_dir is for test jobs that save maps only')
+        n_resumed = 0
         for val_data in loader:
             self.feed_data(val_data)
-            self.test()
+            pred_phy = None
+            if save_flood_map:
+                save_dir, fname = self._map_path(current_iter)
+                if self.resume_vis_dir is not None:
+                    pred_phy = self._take_resumed(save_dir, fname)
+                    n_resumed += pred_phy is not None
             with torch.no_grad():
-                pred_phy = destand_to_physical(self.output, var_name, stats_var, transform, h_asinh_q).clamp_min(0.0)
+                if pred_phy is None:
+                    self.test()
+                    pred_phy = destand_to_physical(self.output, var_name, stats_var, transform, h_asinh_q).clamp_min(0.0)
                 simu_phy = destand_to_physical(self.fine_fm, var_name, stats_var, transform, h_asinh_q).clamp_min(0.0)
             eval_mask = self.static_f[:, -1:, ...]
             for j, name in enumerate(keys):
@@ -284,20 +327,16 @@ class FloodDiffusionModel(FMSRModel):
                 fin = torch.isfinite(v)
                 sums[j] += v[fin].sum()
                 counts[j] += fin.sum()
-            if save_flood_map:
-                m = self.meta
-                flood_map_name = osp.splitext(osp.basename(self.first_scalar(m.get('coarse_path'), name='coarse_path')))[0]
-                save_dir = osp.join(self.opt['path']['visualization'], flood_map_name)
+            if save_flood_map and not osp.isfile(osp.join(save_dir, fname)):
                 os.makedirs(save_dir, exist_ok=True)
-                fname = (f"{self.first_scalar(m.get('var'), name='var')}_{self.first_scalar(m.get('scenario'), name='scenario')}_"
-                         f"{self.first_scalar(m.get('t'), name='t')}_r{int(self.first_scalar(m.get('row'), name='row')):03d}_"
-                         f"c{int(self.first_scalar(m.get('col'), name='col')):03d}_s{int(self.first_scalar(m.get('downscale'), name='downscale'))}"
-                         f"_{current_iter}.npy")
                 np.save(osp.join(save_dir, fname), pred_phy.detach().cpu().numpy().astype(np.float32))
             if pbar is not None:
                 pbar.update(1)
         if pbar is not None:
             pbar.close()
+        if self.resume_vis_dir is not None:
+            get_root_logger().info(f'[FloodDiffusionModel] rank {rank}: {n_resumed} of {len(idx)} patches taken from '
+                                   f'{self.resume_vis_dir}, {len(idx) - n_resumed} sampled')
         if world > 1:
             packed = torch.cat([sums, counts]).to(self.device)
             torch.distributed.all_reduce(packed)

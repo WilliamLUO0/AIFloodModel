@@ -31,8 +31,10 @@ Changes vs the release (S8 rulings, README paper2_S8 §3):
     concatenated with the 7 fine statics -> 10 input channels (Paper 1 rule: every row gets the same inputs);
   * normalisation switchable via heunet_arch._make_norm; the row runs `norm: gn` (<= 8 groups) -- BatchNorm diverged
     for the He et al. UNet at batch 4, and BasicSR's EMA averages parameters only (BN buffers would never update);
-  * their MaskLayer (x*mask, clamp >= 0 m) re-expressed in asinh + z-score label space: clamp at z0 = z(0 m) and z0
-    outside the AOI; `out_floor_stats_json: ~` gives x*mask without the floor;
+  * their MaskLayer (x*mask, clamp >= 0 m): the S8 row runs WITHOUT the clamp (`out_floor_stats_json: ~` -> x*mask,
+    linear output in z-space, as UNet `final_relu: false` / RSwinUNet in Paper 1; evaluation clamps >= 0 m after the
+    inverse transform). The optional label-space floor (clamp at z0 = z(0 m), z0 outside the AOI) is kept in the code
+    but not used;
   * the 13 never-called nn.PReLU stubs are dropped; `flood_head` (1x1 conv 2g -> 3) added for interface parity,
     untrained in this row (native loss = masked L1 only).
 Expected parameters (spec §3.3): 8,474,424 (8,474,229 without the flood head), the same for 'gn' and 'bn'.
