@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Forward-only inference LATENCY of the flood-SR models, measured UNIFORMLY on one GPU,
-at the factor-8 operating point (the main experiment). Companion to compute_flops.py
+Forward-only inference LATENCY of the flood-SR models, measured UNIFORMLY on one GPU.
+TWO GROUPS: the four ARCHITECTURES at s = 8, and TG-PFT at s = 2 / 4 / 8 / 16.
+Companion to compute_flops.py
 (#Params + MACs) -- for a hydrology audience wall-clock is often more convincing than MACs.
 
 Measures ONLY the deep-learning forward pass (per patch). BG-Flood coarse/fine wall-clock
@@ -14,8 +15,19 @@ comes from the user's own BG-Flood run logs and is combined by hand afterwards:
 
 where N_patches is the WHOLE scenario, NOT one patch (see the dimensional note below).
 
+NO WEIGHTS ARE LOADED. Latency depends on layer shapes, not on parameter values -- PFT's
+top-k count is fixed by the config, not by anything learned -- so a freshly built network
+times the same as a trained one. Removing the load also removes a silent failure mode: a
+missing or half-trained checkpoint can no longer change what is measured. (--load-weights
+is still there if a check is ever wanted; it changes the report, not the numbers.)
+
+EVERY MODEL IS TIMED ON ITS OWN INPUT SHAPES, read from its config: coarse is
+flood_map_size x flood_map_size (64 in every config here) and fine is that times `upscale`,
+so s = 2 / 4 / 8 / 16 are 128 / 256 / 512 / 1024. And each is extrapolated with ITS OWN
+test set, so the per-scenario time is over that factor's own patch grid.
+
 Methodology (all six matter; a reviewer will check them):
-  1. model.eval() + torch.no_grad(), EMA weights, fp32.
+  1. model.eval() + torch.no_grad(), fp32.
   2. One input batch is put on the GPU ONCE and reused every iteration -- the dataloader /
      disk I/O is NEVER in the timed region (it would dwarf the architecture differences).
   3. The first --warmup iterations are DISCARDED (CUDA context, cuDNN autotune, allocator).
@@ -48,16 +60,34 @@ from basicsr.archs import build_network
 
 # (display_name, train-config yml). SAME four models as compute_flops.py, same factor-8
 # forward(coarse_fm, static_f) contract, so latencies are directly comparable.
+# (display name, train-config yml, the test set whose patch grid this model is
+#  extrapolated over).  🔴 EACH FACTOR HAS ITS OWN TEST SET: the patch count per
+#  assembled map differs with the patch size, so using s=8's count for s=2 would
+#  be wrong.  All four are the same 100-year, 42 h event assembled to 8 m.
 MODELS = [
-    ("FMPFTV8 (ours, main)", "options/train/01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW.yml"),
-    ("HeUNet",               "options/train/02_HeUNet_SRx8_Filter_InbaL1BCE_LW.yml"),
-    ("SwinFlood",            "options/train/02_SwinFlood_SRx8_Filter_InbaL1BCE_LW.yml"),
-    ("RSwinUNet",            "options/train/02_RSwinUNet_SRx8_Filter_InbaL1BCE_LW.yml"),
+    # --- the four architectures at s = 8 -------------------------------------
+    ("TG-PFT (ours), s=8",  "options/train/01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW.yml",
+     "testdataset_100y42h0c"),
+    ("HeUNet, s=8",         "options/train/02_HeUNet_SRx8_Filter_InbaL1BCE_LW.yml",
+     "testdataset_100y42h0c"),
+    ("SwinFlood, s=8",      "options/train/02_SwinFlood_SRx8_Filter_InbaL1BCE_LW.yml",
+     "testdataset_100y42h0c"),
+    ("RSwinUNet, s=8",      "options/train/02_RSwinUNet_SRx8_Filter_InbaL1BCE_LW.yml",
+     "testdataset_100y42h0c"),
+    # --- TG-PFT across the downscaling factors -------------------------------
+    ("TG-PFT (ours), s=2",  "options/train/06_FMPFTV8_SRx2_Filter_InbaL1BCE_LW.yml",
+     "testdataset_100y42h0c_ds2"),
+    ("TG-PFT (ours), s=4",  "options/train/06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW.yml",
+     "testdataset_100y42h0c_ds4"),
+    ("TG-PFT (ours), s=16", "options/train/06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW.yml",
+     "testdataset_100y42h0c_ds16"),
 ]
 
-COARSE_HW = 64
-UPSCALE = 8
-FINE_HW = COARSE_HW * UPSCALE   # 512
+
+def shapes(net_opt):
+    """(coarse_hw, fine_hw) for this config -- read, never assumed."""
+    fm = int(net_opt.get("flood_map_size", 64))
+    return fm, fm * int(net_opt["upscale"])
 
 
 def _ckpt_iter(path):
@@ -70,12 +100,13 @@ def _ckpt_iter(path):
 
 
 def load_model(cfg_path, exp_root, load_weights, device):
-    """Build the arch and (optionally) load its LATEST trained EMA checkpoint. The main
-    model trained to 1M iters; the baselines are stopped ~600k (still training), so we
-    auto-pick the highest-iteration net_g_*.pth per model rather than assuming 1M.
-    LATENCY IS ITERATION- AND WEIGHT-INDEPENDENT (same layers/shapes; PFT's top-k count
-    is fixed by config, not by learned values) -> 600k vs 1M vs random-init all time the
-    same, so the comparison stays valid; we load real weights only for defensibility."""
+    """Build the arch, and load a checkpoint ONLY if explicitly asked.
+
+    LATENCY IS WEIGHT-INDEPENDENT: the layers and their shapes come from the config,
+    and PFT's top-k count is set there too, not learned, so random-init, 600k and 1M
+    all time identically. The default is therefore NOT to load -- it makes the run
+    reproducible on any machine and removes the risk of silently timing whatever
+    checkpoint happened to be on disk."""
     with open(cfg_path, "r", encoding="utf-8") as f:
         opt = yaml.safe_load(f)
     net_opt = opt["network_g"]
@@ -166,8 +197,11 @@ def main():
     ap.add_argument("--iters", type=int, default=100, help=">=50 recommended")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--exp-root", default="experiments", help="dir holding <exp>/models/net_g_1000000.pth")
-    ap.add_argument("--no-load-weights", action="store_true", help="skip EMA load (latency is identical)")
-    ap.add_argument("--test-index", default="", help="testdataset_*/index.csv -> full-map & full-scenario time")
+    ap.add_argument("--load-weights", action="store_true",
+                    help="load each model's latest EMA checkpoint (latency is identical; "
+                         "the default is to build the network and time it as-is)")
+    ap.add_argument("--test-root", default=".",
+                    help="folder holding testdataset_100y42h0c[_ds2|_ds4|_ds16]")
     ap.add_argument("--gpu-name", default="", help="label printed into the report (e.g. A100-40GB)")
     ap.add_argument("--csv", default="", help="optional path to also write a CSV")
     ap.add_argument("--seed", type=int, default=0)
@@ -185,30 +219,28 @@ def main():
     else:
         gpu = args.gpu_name or "CPU"
 
-    n_patches, n_t, ppt = scan_test_index(args.test_index)
-
     print(f"Device: {gpu} | batch: {args.batch} | warmup: {args.warmup} | timed iters: {args.iters} | fp32")
-    print(f"Input @ factor 8 (per forward): coarse [{args.batch},3,64,64] + static [{args.batch},7,512,512]")
-    if n_patches:
-        extra = f", {n_t} timesteps, {ppt:.1f} patches/map" if n_t else ""
-        print(f"Test set ({os.path.basename(os.path.dirname(args.test_index))}): {n_patches} patches{extra}")
-    print("-" * 92)
-    print(f"{'model':<26} {'weights':<14} {'med ms/patch':>13} {'IQR':>8} {'mean±std ms':>18}")
+    print("-" * 116)
+    print(f"{'model':<22} {'input (coarse|fine)':>20} {'test set':<28} "
+          f"{'med ms/patch':>13} {'IQR':>8}")
     print("(ms/patch = per-forward time at this batch, divided by batch)")
-    print("-" * 92)
+    print("-" * 116)
 
     rows = []
-    for name, cfg_path in MODELS:
+    for name, cfg_path, testset in MODELS:
         if not os.path.isfile(cfg_path):
             print(f"{name:<26} [skip] config not found: {cfg_path}")
             continue
         model, net_opt, loaded = load_model(
-            cfg_path, args.exp_root, load_weights=not args.no_load_weights, device=args.device)
+            cfg_path, args.exp_root, load_weights=args.load_weights, device=args.device)
 
+        index = os.path.join(args.test_root, testset, "index.csv")
+        n_patches, n_t, ppt = scan_test_index(index)
         cc = int(net_opt.get("coarse_in_chans", 3))
         cs = int(net_opt.get("static_in_chans", 7))
-        coarse = torch.randn(args.batch, cc, COARSE_HW, COARSE_HW, device=args.device)
-        static = torch.randn(args.batch, cs, FINE_HW, FINE_HW, device=args.device)
+        chw, fhw = shapes(net_opt)
+        coarse = torch.randn(args.batch, cc, chw, chw, device=args.device)
+        static = torch.randn(args.batch, cs, fhw, fhw, device=args.device)
 
         per_forward = bench(model, coarse, static, args.warmup, args.iters, cuda)
         per_patch = [t / args.batch for t in per_forward]
@@ -216,39 +248,57 @@ def main():
         mean = statistics.mean(per_patch)
         std = statistics.stdev(per_patch) if len(per_patch) > 1 else 0.0
 
-        print(f"{name:<26} {loaded:<14} {med:>13.3f} {p75 - p25:>8.3f} {f'{mean:.3f}±{std:.3f}':>18}")
-        rows.append((name, loaded, med, p25, p75, mean, std, n_patches, ppt))
+        shape = f"{chw}x{chw} | {fhw}x{fhw}"
+        seen = (f"{testset} ({n_patches} patches)" if n_patches
+                else f"{testset} [NOT FOUND]")
+        print(f"{name:<22} {shape:>20} {seen:<28} {med:>13.3f} {p75 - p25:>8.3f}")
+        rows.append((name, loaded, med, p25, p75, mean, std, n_patches, ppt,
+                     chw, fhw, testset, n_t))
 
         del model, coarse, static
         if cuda:
             torch.cuda.empty_cache()
 
     # ---- full-map / full-scenario extrapolation (per-patch median x patch count) ----
-    if n_patches:
-        print("-" * 84)
-        hdr = f"{'model':<26} {'full map (s)':>14}" + (f" {'full scenario (s)':>18}" if n_patches else "")
-        print(hdr)
-        print("-" * 84)
-        for name, loaded, med, p25, p75, mean, std, npat, pp in rows:
+    # 🔴 THE FULL-SCENARIO COLUMN IS THE ONE THE PAPER USES.  The BG-Flood
+    # wall-clocks are whole runs, so only a whole-scenario model time can be
+    # added to them; a per-patch or even a per-map time cannot.
+    if any(r[7] for r in rows):
+        print("-" * 96)
+        print(f"{'model':<22} {'patches/map':>12} {'steps':>7} {'full map (s)':>14} "
+              f"{'FULL SCENARIO (s)':>19}")
+        print("-" * 96)
+        for (name, loaded, med, p25, p75, mean, std, npat, pp, chw, fhw,
+             testset, n_t) in rows:
+            if not npat:
+                print(f"{name:<22} {'--':>12} {'--':>7} {'--':>14} {'--':>19}")
+                continue
             map_s = (pp * med / 1e3) if pp else float("nan")
             scen_s = npat * med / 1e3
-            line = f"{name:<26} {map_s:>14.2f}" + f" {scen_s:>18.2f}"
-            print(line)
-        print("\nfull map    = patches-per-map x ms/patch (one 8 m timestep).")
-        print("full scenario = total test patches x ms/patch (all timesteps).")
-        print("For the speed-up ratio, use the FULL-SCENARIO model time with the coarse/fine")
-        print("BG-Flood wall-clock from your own run logs (same scenario, same sim length).")
+            print(f"{name:<22} {pp:>12.0f} {n_t or 0:>7} {map_s:>14.2f} "
+                  f"{scen_s:>19.2f}")
+        print("\nfull map      = patches-per-map x ms/patch (one 8 m timestep).")
+        print("full scenario = that model's total test patches x ms/patch (every timestep).")
+        print("Use the FULL SCENARIO time with the coarse/fine BG-Flood wall-clock from the")
+        print("run logs -- same scenario, same simulated length.")
 
     if args.csv and rows:
         os.makedirs(os.path.dirname(os.path.abspath(args.csv)) or ".", exist_ok=True)
         with open(args.csv, "w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
-            w.writerow(["model", "weights", "ms_per_patch_median", "ms_p25", "ms_p75",
-                        "ms_mean", "ms_std", "test_patches", "patches_per_map", "gpu", "batch"])
-            for name, loaded, med, p25, p75, mean, std, npat, pp in rows:
-                w.writerow([name, loaded, f"{med:.4f}", f"{p25:.4f}", f"{p75:.4f}",
-                            f"{mean:.4f}", f"{std:.4f}", npat if npat else "",
-                            f"{pp:.2f}" if pp else "", gpu, args.batch])
+            w.writerow(["model", "weights", "coarse_hw", "fine_hw", "test_set",
+                        "ms_per_patch_median", "ms_p25", "ms_p75", "ms_mean", "ms_std",
+                        "test_patches", "timesteps", "patches_per_map",
+                        "full_map_s", "full_scenario_s", "gpu", "batch"])
+            for (name, loaded, med, p25, p75, mean, std, npat, pp, chw, fhw,
+                 testset, n_t) in rows:
+                w.writerow([name, loaded, chw, fhw, testset,
+                            f"{med:.4f}", f"{p25:.4f}", f"{p75:.4f}",
+                            f"{mean:.4f}", f"{std:.4f}", npat or "", n_t or "",
+                            f"{pp:.2f}" if pp else "",
+                            f"{pp * med / 1e3:.2f}" if pp else "",
+                            f"{npat * med / 1e3:.2f}" if npat else "",
+                            gpu, args.batch])
         print(f"\n[saved] {args.csv}")
 
 

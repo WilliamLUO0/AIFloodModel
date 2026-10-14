@@ -5,10 +5,18 @@ Compute #Params and FLOPs for the flood-SR models, UNIFORMLY, via a real forward
 pass counted by fvcore (NOT the per-arch hand-written flops(), which are missing
 for HeUNet/SwinFlood and are approximate MACs elsewhere).
 
-All models are measured at the factor-8 operating point (the main experiment):
-    coarse_fm : [1, coarse_in_chans, 64, 64]     (coarse-grid input, 64x64)
-    static_f  : [1, static_in_chans, 512, 512]   (fine-grid topography, 64*8)
-so the numbers are directly comparable across architectures.
+TWO GROUPS, and each is internally comparable:
+  * the four ARCHITECTURES at the factor-8 operating point -- identical input
+    shapes, so the differences are the architectures;
+  * TG-PFT at s = 2 / 4 / 8 / 16 -- the downscaling-factor study.  Every config
+    uses flood_map_size = 64, so the COARSE input is 64x64 in all of them and
+    only the fine grid grows (128 / 256 / 512 / 1024 = 64*s).  The shapes are
+    therefore READ FROM EACH CONFIG rather than hard-coded:
+        coarse_fm : [1, coarse_in_chans, fm, fm]          fm = flood_map_size
+        static_f  : [1, static_in_chans, fm*s, fm*s]      s  = upscale
+NO WEIGHTS ARE LOADED ANYWHERE. Parameter COUNTS and operation counts depend on
+shapes alone, never on values, so a freshly built network gives the same answer
+as a trained one.
 
 CPU-only, no GPU. Run on a login node, or via tools/compute_flops.sh.
 
@@ -37,16 +45,22 @@ from basicsr.archs import build_network
 # PFT is intentionally NOT here: the original PFT is a single-input image-SR net (no
 # coarse/static flood contract), so its FLOPs are not comparable and it is skipped.
 MODELS = [
-    ("FMPFTV8 (ours, main)", "options/train/01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW.yml"),
-    ("HeUNet",               "options/train/02_HeUNet_SRx8_Filter_InbaL1BCE_LW.yml"),
-    ("SwinFlood",            "options/train/02_SwinFlood_SRx8_Filter_InbaL1BCE_LW.yml"),
-    ("RSwinUNet",            "options/train/02_RSwinUNet_SRx8_Filter_InbaL1BCE_LW.yml"),
+    # --- the four architectures at s = 8 -------------------------------------
+    ("TG-PFT (ours), s=8",   "options/train/01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW.yml"),
+    ("HeUNet, s=8",          "options/train/02_HeUNet_SRx8_Filter_InbaL1BCE_LW.yml"),
+    ("SwinFlood, s=8",       "options/train/02_SwinFlood_SRx8_Filter_InbaL1BCE_LW.yml"),
+    ("RSwinUNet, s=8",       "options/train/02_RSwinUNet_SRx8_Filter_InbaL1BCE_LW.yml"),
+    # --- TG-PFT across the downscaling factors -------------------------------
+    ("TG-PFT (ours), s=2",   "options/train/06_FMPFTV8_SRx2_Filter_InbaL1BCE_LW.yml"),
+    ("TG-PFT (ours), s=4",   "options/train/06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW.yml"),
+    ("TG-PFT (ours), s=16",  "options/train/06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW.yml"),
 ]
 
-# factor-8 operating point (shared by every model)
-COARSE_HW = 64
-UPSCALE = 8
-FINE_HW = COARSE_HW * UPSCALE   # 512
+
+def shapes(net_opt):
+    """(coarse_hw, fine_hw) for this config -- read, never assumed."""
+    fm = int(net_opt.get("flood_map_size", 64))
+    return fm, fm * int(net_opt["upscale"])
 
 
 def count_params(model):
@@ -134,8 +148,9 @@ def main():
 
     torch.set_grad_enabled(False)
     rows = []
-    print(f"{'model':<26} {'Params(M)':>11} {'GMac':>10} {'GFLOPs(=2xMac)':>16}")
-    print("-" * 67)
+    print(f"{'model':<26} {'input (coarse|fine)':>22} {'Params(M)':>11} "
+          f"{'GMac':>10} {'GFLOPs(=2xMac)':>16}")
+    print("-" * 90)
 
     for name, cfg_path in MODELS:
         if not os.path.isfile(cfg_path):
@@ -149,8 +164,9 @@ def main():
 
         cc = int(net_opt.get("coarse_in_chans", 3))
         cs = int(net_opt.get("static_in_chans", 7))
-        coarse = torch.randn(1, cc, COARSE_HW, COARSE_HW)
-        static = torch.randn(1, cs, FINE_HW, FINE_HW)
+        chw, fhw = shapes(net_opt)
+        coarse = torch.randn(1, cc, chw, chw)
+        static = torch.randn(1, cs, fhw, fhw)
 
         total, _ = count_params(model)
         macs, unsup, by_mod = count_macs(model, (coarse, static))
@@ -167,8 +183,10 @@ def main():
             gflops = 2 * gmac
             note = f"  (incl +{gmac_smm:.3f} SMM)" if smm > 0 else ""
 
-        print(f"{name:<26} {params_m:>11.3f} {gmac:>10.2f} {gflops:>16.2f}{note}")
-        rows.append((name, params_m, gmac_fvcore, gmac_smm, gmac, gflops))
+        shape = f"{chw}x{chw} | {fhw}x{fhw}"
+        print(f"{name:<26} {shape:>22} {params_m:>11.3f} {gmac:>10.2f} "
+              f"{gflops:>16.2f}{note}")
+        rows.append((name, chw, fhw, params_m, gmac_fvcore, gmac_smm, gmac, gflops))
 
         # --- per-model diagnostics: what fvcore missed + authoritative component split ---
         if macs:
@@ -186,11 +204,12 @@ def main():
         os.makedirs(os.path.dirname(os.path.abspath(args.csv)) or ".", exist_ok=True)
         with open(args.csv, "w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
-            w.writerow(["model", "params_M", "GMac_fvcore", "GMac_smm", "GMac_total", "GFLOPs_total"])
+            w.writerow(["model", "coarse_hw", "fine_hw", "params_M", "GMac_fvcore",
+                        "GMac_smm", "GMac_total", "GFLOPs_total"])
             w.writerows(rows)
         print(f"\n[saved] {args.csv}")
 
-    print("\nInput @ factor 8: coarse [1,3,64,64] + static [1,7,512,512].")
+    print("\nInput shapes are per model, printed above; no weights are loaded.")
     print("GMac = multiply-accumulates (what most papers call 'FLOPs'); GFLOPs = 2 x GMac.")
     print("GMac(total) = fvcore-traced ops + analytic SMM (FloodMapPFTV8's custom sparse")
     print("attention, which fvcore counts as 0; baselines use plain matmul -> SMM=0).")

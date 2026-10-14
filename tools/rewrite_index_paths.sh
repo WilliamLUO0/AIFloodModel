@@ -37,22 +37,46 @@ BASE_OUT="/nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel"
 
 # ===================== EDIT HERE: which datasets to rewrite =====================
 DATASETS=(
+  # ===== Paper 2 M3 Row B (fine patch 512): 3 train + 3 test datasets =====
+  "dataset_ds2_pf512_filtered_thr0p1_min25100_full"
+  "dataset_ds4_pf512_filtered_thr0p1_min10100_full"
+  "dataset_ds16_pf512_filtered_thr0p1_min2100_full"
+  "testdataset_100y42h0c_ds2_pf512"
+  "testdataset_100y42h0c_ds4_pf512"
+  "testdataset_100y42h0c_ds16_pf512"
+  # ===== Paper 2 S5 unseen-pattern test sets (uncomment after make_patches_testset.sh S5 lines) =====
+  # "testdataset_100y48h0cdp11"
+  # "testdataset_100y48h0cdp21"
+  # "testdataset_100y48h0c"           # S5 single-peak column (seen scenario)
+  # ===== Paper 2 S4 beyond-design test sets (uncomment after make_patches_testset.sh S4 lines) =====
+  # "testdataset_1000y48h0cx1p25"
+  # "testdataset_1000y48h0cx1p5"
+  # "testdataset_1000y48h0cx2p0"
+  # "testdataset_1000y48h0cx3p0"      # OPTIONAL stress test
+  # "testdataset_1000y48h0c"          # S4 x1 column (seen scenario)
+  # ===== Paper 2 S3(a) cross-resolution test, 16 m targets (uncomment after tools/make_testset_xres16.sh) =====
+  # "testdataset_100y42h0c_xres16_ds8"
+  # "testdataset_100y42h0c_xres16_ds4"
+  # "testdataset_100y42h0c_xres16_ds2"
+  # ===== Paper 2 M2 probe patches + indexes (uncomment after tools/probe_static.sh) =====
+  # "probe_static_M2"
+  # ===== earlier batches (already done) =====
   # --- training (4) ---
-  "dataset_ds8_filtered_thr0p1_min5100_full"
-  "dataset_ds16_filtered_thr0p1_min2100_full"
-  "dataset_ds4_filtered_thr0p1_min10100_full"
-  "dataset_ds2_filtered_thr0p1_min25100_full"
+  # "dataset_ds8_filtered_thr0p1_min5100_full"
+  # "dataset_ds16_filtered_thr0p1_min2100_full"
+  # "dataset_ds4_filtered_thr0p1_min10100_full"
+  # "dataset_ds2_filtered_thr0p1_min25100_full"
   # --- test: factor-8 main-model suite ---
-  "testdataset_2y42h0c"
-  "testdataset_5y42h0c"
-  "testdataset_10y42h0c"
-  "testdataset_50y42h0c"
-  "testdataset_100y42h0c"
-  "testdataset_1000y42h0c"
+  # "testdataset_2y42h0c"
+  # "testdataset_5y42h0c"
+  # "testdataset_10y42h0c"
+  # "testdataset_50y42h0c"
+  # "testdataset_100y42h0c"
+  # "testdataset_1000y42h0c"
   # --- test: downscaling-factor ablation (100y only) ---
-  "testdataset_100y42h0c_ds2"
-  "testdataset_100y42h0c_ds4"
-  "testdataset_100y42h0c_ds16"
+  # "testdataset_100y42h0c_ds2"
+  # "testdataset_100y42h0c_ds4"
+  # "testdataset_100y42h0c_ds16"
   # --- deferred: gabrielle (uncomment once its sim + patches exist) ---
   # "testdataset_gabrielle"
   # "testdataset_gabrielle_ds2"
@@ -66,6 +90,16 @@ rewrite_one() {
   local out="${csv%.csv}_niwa.csv"
   echo "[rewrite] $(basename "${csv}") -> $(basename "${out}")"
   python tools/rewrite_index_paths.py --in_csv "${csv}" --out_csv "${out}"
+  # post-check: no NeSI path may survive (M2 indexes mix probe_static_M2/, dataset_ds8/ and testdataset_*/ paths;
+  # /home/zluo784/... is the symlinked NeSI home form, which does not contain "/nesi/")
+  local left
+  left=$(grep -c -E '/nesi/|/home/zluo784/' "${out}" || true)
+  if [[ "${left}" != "0" ]]; then
+    echo "[error] ${out}: ${left} line(s) still hold a NeSI path, e.g.:" >&2
+    grep -m 3 -o -E '(/nesi/|/home/zluo784/)[^,]*' "${out}" >&2
+    exit 1
+  fi
+  echo "          OK: no NeSI path left"
 }
 
 for DS in "${DATASETS[@]}"; do

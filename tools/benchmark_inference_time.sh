@@ -5,9 +5,9 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gres=gpu:a100:1
-#SBATCH --cpus-per-task=4
+#SBATCH --cpus-per-task=2
 #SBATCH --mem=24G
-#SBATCH --time=1:00:00
+#SBATCH --time=12:00:00
 #SBATCH --output=logs/%x_%j.out
 #SBATCH --error=logs/%x_%j.err
 
@@ -30,15 +30,20 @@ export PYTHONUNBUFFERED=1
 
 ROOT=/nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel
 
-# ===================== EDIT HERE: which test set to size the full-scenario time on =====================
-TEST_INDEX="$ROOT/testdataset_100y42h0c/index.csv"
-# TEST_INDEX="$ROOT/testdataset_gabrielle/index.csv"
+# ===================== the test sets the full-scenario time is sized on =====================
+# Every model is extrapolated over ITS OWN test set, so the script only needs
+# the folder that holds them:
+#   testdataset_100y42h0c        s = 8 (all four architectures)
+#   testdataset_100y42h0c_ds2    s = 2
+#   testdataset_100y42h0c_ds4    s = 4
+#   testdataset_100y42h0c_ds16   s = 16
+# No checkpoint is loaded - latency depends on layer shapes, not on weights -
+# so --exp-root is not needed either.
 # ====================================================================================================
 
 nvidia-smi
 
 python tools/benchmark_inference_time.py \
   --batch 1 --warmup 20 --iters 100 \
-  --exp-root "$ROOT/experiments" \
-  --test-index "$TEST_INDEX" \
+  --test-root "$ROOT" \
   --csv tools/model_infer_time.csv

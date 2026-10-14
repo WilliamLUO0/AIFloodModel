@@ -4,9 +4,9 @@
 #SBATCH --partition=milan,genoa
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=2
 #SBATCH --mem=16G
-#SBATCH --time=24:00:00
+#SBATCH --time=48:00:00
 #SBATCH --output=logs/%x_%j.out
 #SBATCH --error=logs/%x_%j.err
 
@@ -28,22 +28,46 @@ OUT_DIR="${BASE}/archive_dataset"
 
 # ===================== EDIT HERE: which datasets to pack =====================
 DATASETS=(
+  # ===== Paper 2 M3 Row B (fine patch 512): 3 train + 3 test datasets =====
+  "dataset_ds2_pf512_filtered_thr0p1_min25100_full"
+  "dataset_ds4_pf512_filtered_thr0p1_min10100_full"
+  "dataset_ds16_pf512_filtered_thr0p1_min2100_full"
+  "testdataset_100y42h0c_ds2_pf512"
+  "testdataset_100y42h0c_ds4_pf512"
+  "testdataset_100y42h0c_ds16_pf512"
+  # ===== Paper 2 S5 unseen-pattern test sets (uncomment after make_patches_testset.sh S5 lines) =====
+  # "testdataset_100y48h0cdp11"
+  # "testdataset_100y48h0cdp21"
+  # "testdataset_100y48h0c"           # S5 single-peak column (seen scenario)
+  # ===== Paper 2 S4 beyond-design test sets (uncomment after make_patches_testset.sh S4 lines) =====
+  # "testdataset_1000y48h0cx1p25"
+  # "testdataset_1000y48h0cx1p5"
+  # "testdataset_1000y48h0cx2p0"
+  # "testdataset_1000y48h0cx3p0"      # OPTIONAL stress test
+  # "testdataset_1000y48h0c"          # S4 x1 column (seen scenario)
+  # ===== Paper 2 S3(a) cross-resolution test, 16 m targets (uncomment after tools/make_testset_xres16.sh) =====
+  # "testdataset_100y42h0c_xres16_ds8"
+  # "testdataset_100y42h0c_xres16_ds4"
+  # "testdataset_100y42h0c_xres16_ds2"
+  # ===== Paper 2 M2 probe patches + indexes (uncomment after tools/probe_static.sh) =====
+  # "probe_static_M2"
+  # ===== earlier batches (already done) =====
   # --- training (4) ---
-  "dataset_ds8_filtered_thr0p1_min5100_full"
-  "dataset_ds16_filtered_thr0p1_min2100_full"
-  "dataset_ds4_filtered_thr0p1_min10100_full"
-  "dataset_ds2_filtered_thr0p1_min25100_full"
+  # "dataset_ds8_filtered_thr0p1_min5100_full"
+  # "dataset_ds16_filtered_thr0p1_min2100_full"
+  # "dataset_ds4_filtered_thr0p1_min10100_full"
+  # "dataset_ds2_filtered_thr0p1_min25100_full"
   # --- test: factor-8 main-model suite ---
-  "testdataset_2y42h0c"
-  "testdataset_5y42h0c"
-  "testdataset_10y42h0c"
-  "testdataset_50y42h0c"
-  "testdataset_100y42h0c"
-  "testdataset_1000y42h0c"
+  # "testdataset_2y42h0c"
+  # "testdataset_5y42h0c"
+  # "testdataset_10y42h0c"
+  # "testdataset_50y42h0c"
+  # "testdataset_100y42h0c"
+  # "testdataset_1000y42h0c"
   # --- test: downscaling-factor ablation (100y only) ---
-  "testdataset_100y42h0c_ds2"
-  "testdataset_100y42h0c_ds4"
-  "testdataset_100y42h0c_ds16"
+  # "testdataset_100y42h0c_ds2"
+  # "testdataset_100y42h0c_ds4"
+  # "testdataset_100y42h0c_ds16"
   # --- deferred: gabrielle (uncomment once built) ---
   # "testdataset_gabrielle"
   # "testdataset_gabrielle_ds2"
