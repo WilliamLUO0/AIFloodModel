@@ -12,7 +12,7 @@
 # switch to a CPU queue here if NIWA provides one.
 #PBS -q a100q
 #PBS -l select=1:ncpus=4:ngpus=1:mem=32GB:nodepool=a100p
-#PBS -l walltime=6:00:00
+#PBS -l walltime=24:00:00
 #PBS -N eval_flood_batch_pbs
 #PBS -S /bin/bash
 #PBS -o /esi/project/niwa04345/luoz/AIFloodModel/logs/
@@ -58,6 +58,11 @@ if [[ "$VAR" == "h" ]]; then EXPSUF=""; ABS=""; else EXPSUF="_${VAR}"; ABS="--ab
 TRAIN_INDEX=index_with_interval_stats_${VAR}_niwa.csv  # val index (per training dataset)
 TEST_INDEX=index_niwa.csv                              # test-dataset index (all vars)
 
+# split JSON of a training dataset (for the val completeness guard, review 2026-10-14 A1)
+if [[ "$VAR" == "h" ]]; then SPLIT_JSON_NAME=split_stats_h_asinh.json; else SPLIT_JSON_NAME=split_stats_${VAR}.json; fi
+# failed jobs are collected (one failure no longer aborts the batch) and listed at the end -> exit 1
+FAILED=()
+
 # ===================== EDIT HERE: explicit eval jobs =====================
 # Fully explicit -- each line pins WHICH model reads WHICH dataset. Comment out
 # anything already aggregated (you may run this in several batches).
@@ -65,114 +70,335 @@ TEST_INDEX=index_niwa.csv                              # test-dataset index (all
 # VAL jobs -> "exp_base:train_dataset_dir"  (val patches live in the training
 #   dataset; read as *_patch_mean, pinned to the seed-61 val 20% via --vis-root).
 VAL_JOBS=(
-  # --- 01 main model (h; u/v via VAR knob) ---
-  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  # --- 02 baselines (matched-loss + native-loss variants) ---
-  "02_FMPFTV7_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  "02_HeUNet_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  "02_HeUNet_SRx8_Filter_InbaL2:dataset_ds8_filtered_thr0p1_min5100_full"
-  "02_SwinFlood_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  "02_SwinFlood_SRx8_Filter_InbaL2:dataset_ds8_filtered_thr0p1_min5100_full"
-  "02_RSwinUNet_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  "02_RSwinUNet_SRx8_Filter_InbaL1:dataset_ds8_filtered_thr0p1_min5100_full"
-  # --- 03 input ablations ---
-  "03_FMPFTV8_Abl_coarse_demOnly_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  "03_FMPFTV8_Abl_coarse_zsOnly_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # ===== Paper 2 M1 topography-guidance ablation (600k; val + 100y_42h only) =====
+  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_600k:dataset_ds8_filtered_thr0p1_min5100_full"
   "03_FMPFTV8_Abl_static_demOnly_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  "03_FMPFTV8_Abl_static_noAspect_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  "03_FMPFTV8_Abl_static_noDEM_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  "03_FMPFTV8_Abl_static_noRough_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
   "03_FMPFTV8_Abl_static_noSlope_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
   "03_FMPFTV8_Abl_static_noTWI_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  # --- 04 loss / mechanism ablations (noFilter trains on the UNFILTERED ds8) ---
-  "04_FMPFTV8_Abl_noAoiGate_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  "04_FMPFTV8_Abl_noBCE_SRx8_Filter_InbaL1_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  "04_FMPFTV8_Abl_noFilter_SRx8_InbaL1BCE_LW:dataset_ds8"
-  "04_FMPFTV8_Abl_noIBS_SRx8_Filter_L1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  "04_FMPFTV8_Abl_noResidual_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  # --- 05 architecture ablations ---
-  "05_FMPFTV8Abl_convBottleneck_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  "03_FMPFTV8_Abl_static_noAspect_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  "03_FMPFTV8_Abl_static_noRough_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  "03_FMPFTV8_Abl_static_noDEM_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  "03_FMPFTV8_Abl_coarse_demOnly_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  "03_FMPFTV8_Abl_coarse_zsOnly_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  "05_FMPFTV8Abl_skipFinest_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
   "05_FMPFTV8Abl_noUshape_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
   "05_FMPFTV8Abl_noUshapeDFuse_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  "05_FMPFTV9_Abl_deepSkip_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  "05_FMPFTV9_Abl_deepSkipFuse_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  "05_FMPFTV8Abl_convBottleneck_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # ===== Paper 1 jobs (already aggregated) -- kept for provenance, commented =====
+  # --- 01 main model (h; u/v via VAR knob) ---
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # --- 01 seed replicates (h-only; comment out for VAR=u/v) ---
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_seed1202:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_seed2027:dataset_ds8_filtered_thr0p1_min5100_full"
+  # --- 02 baselines (matched-loss + native-loss variants) ---
+  # "02_FMPFTV7_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "02_HeUNet_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "02_HeUNet_SRx8_Filter_InbaL2:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "02_SwinFlood_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "02_SwinFlood_SRx8_Filter_InbaL2:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "02_RSwinUNet_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "02_RSwinUNet_SRx8_Filter_InbaL1:dataset_ds8_filtered_thr0p1_min5100_full"
+  # --- 03 input ablations ---
+  # "03_FMPFTV8_Abl_coarse_demOnly_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "03_FMPFTV8_Abl_coarse_zsOnly_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "03_FMPFTV8_Abl_static_demOnly_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "03_FMPFTV8_Abl_static_noAspect_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "03_FMPFTV8_Abl_static_noDEM_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "03_FMPFTV8_Abl_static_noRough_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "03_FMPFTV8_Abl_static_noSlope_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "03_FMPFTV8_Abl_static_noTWI_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # --- 04 loss / mechanism ablations (noFilter trains on the UNFILTERED ds8) ---
+  # "04_FMPFTV8_Abl_noAoiGate_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "04_FMPFTV8_Abl_noBCE_SRx8_Filter_InbaL1_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "04_FMPFTV8_Abl_noFilter_SRx8_InbaL1BCE_LW:dataset_ds8"
+  # "04_FMPFTV8_Abl_noIBS_SRx8_Filter_L1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "04_FMPFTV8_Abl_noResidual_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # --- 05 architecture ablations ---
+  # "05_FMPFTV8Abl_convBottleneck_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "05_FMPFTV8Abl_noUshape_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "05_FMPFTV8Abl_noUshapeDFuse_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "05_FMPFTV9_Abl_deepSkip_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "05_FMPFTV9_Abl_deepSkipFuse_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
   # --- 06 downscaling-factor models (h-only; comment out for VAR=u/v) ---
-  "06_FMPFTV8_SRx2_Filter_InbaL1BCE_LW:dataset_ds2_filtered_thr0p1_min25100_full"
-  "06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW:dataset_ds4_filtered_thr0p1_min10100_full"
-  "06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW:dataset_ds16_filtered_thr0p1_min2100_full"
+  # "06_FMPFTV8_SRx2_Filter_InbaL1BCE_LW:dataset_ds2_filtered_thr0p1_min25100_full"
+  # "06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW:dataset_ds4_filtered_thr0p1_min10100_full"
+  # "06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW:dataset_ds16_filtered_thr0p1_min2100_full"
+  # ===== Paper 2 M3 scale grid (1M; val + 100y_42h). UNCOMMENT once its test_flood_map jobs are done
+  #       (and comment the M1 block above if M1 is already aggregated). Row A lines = re-aggregation only
+  #       (no new inference) to add PSNR/SSIM + the S16 edge/centre columns. =====
+  # --- Row B (fine 512) ---
+  # "06_FMPFTV8_SRx2_PF512_Filter_InbaL1BCE_LW:dataset_ds2_pf512_filtered_thr0p1_min25100_full"
+  # "06_FMPFTV8_SRx4_PF512_Filter_InbaL1BCE_LW:dataset_ds4_pf512_filtered_thr0p1_min10100_full"
+  # "06_FMPFTV8_SRx16_PF512_Filter_InbaL1BCE_LW:dataset_ds16_pf512_filtered_thr0p1_min2100_full"
+  # --- Row A (coarse 64) + s = 8 (shared by both rows) ---
+  # "06_FMPFTV8_SRx2_Filter_InbaL1BCE_LW:dataset_ds2_filtered_thr0p1_min25100_full"
+  # "06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW:dataset_ds4_filtered_thr0p1_min10100_full"
+  # "06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW:dataset_ds16_filtered_thr0p1_min2100_full"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # ===== Paper 2 M2 static-input probes on 01 @1M (val + 100y_42h). UNCOMMENT after the M2probe test_flood_map
+  #       jobs are done. Reference row = the existing 01 1M eval (no extra job). No new baselines needed. =====
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_noise_s0p1:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_noise_s0p25:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_noise_s0p5:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_noise_s1p0:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_noisedem_s0p5:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_shiftN1:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_shiftN2:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_shiftN4:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_shiftE1:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_shiftE2:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_shiftE4:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_res16:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_res32:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_res64:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_meanabl_dem:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_meanabl_roughness:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_meanabl_slope:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_meanabl_twi:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_meanabl_aspect:dataset_ds8_filtered_thr0p1_min5100_full"
+  # ===== Paper 2 S1 guidance x factor: row (j) noUshape at 1M (val + 100y). UNCOMMENT after its test_flood_map jobs.
+  #       The matching FULL models (Row B + 01 1M) and the baselines are in the M3 block -> uncomment that too. =====
+  # "06_FMPFTV8Abl_noUshape_SRx2_PF512_Filter_InbaL1BCE_LW:dataset_ds2_pf512_filtered_thr0p1_min25100_full"
+  # "06_FMPFTV8Abl_noUshape_SRx4_PF512_Filter_InbaL1BCE_LW:dataset_ds4_pf512_filtered_thr0p1_min10100_full"
+  # "06_FMPFTV8Abl_noUshape_SRx16_PF512_Filter_InbaL1BCE_LW:dataset_ds16_pf512_filtered_thr0p1_min2100_full"
+  # "05_FMPFTV8Abl_noUshape_SRx8_Filter_InbaL1BCE_LW_1M:dataset_ds8_filtered_thr0p1_min5100_full"
+  # ===== Paper 2 S2 Delta-t coarse input at 1M (val + 100y; gabrielle optional). UNCOMMENT after its test_flood_map jobs.
+  #       Single-frame reference = 01 at 1M (its val/100y predictions must be in results/ - restore from archive). =====
+  # "07_FMPFTV8_SRx8_dtc1_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "07_FMPFTV8_SRx8_dtc3_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "07_FMPFTV8_SRx8_dts1_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "07_FMPFTV8_SRx8_dts3_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"   # single-frame reference
+  # ===== Paper 2 S8 released models under one protocol + TG-SAT (1M EMA; val + 100y_42h). UNCOMMENT each line after
+  #       its test_flood_map jobs are done. Flood-DM: run its valsub256 T_s sweep first and write the chosen t_start into
+  #       its eval ymls (they refuse to run with t_start: ~). Paper 1 rows (TG-PFT, PFT-V7, UNet, SwinFlood, RSwinUNet)
+  #       are NOT re-evaluated here: their numbers are final.
+  #       Baselines: ds8 val + test100y42h0c, already computed for M1 (no extra baseline line needed). =====
+  # "08_FMSATV8_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "08_FMSATV7_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "08_FLOSR_SRx8_Filter_InbaL1:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "08_SongDenseUNet_SRx8_Filter_InbaL1:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "08_ShenCBAMGAN_SRx8_Filter_OwnLoss:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "08_FloodDM_SRx8_Filter_EpsL1:dataset_ds8_filtered_thr0p1_min5100_full"
 )
 
 # TEST jobs -> "exp_base:eval_tag:test_dataset_dir"  (complete maps; read *_global).
 TEST_JOBS=(
-  # --- 01 main model -> ALL 7 test sets (factor-8) ---
-  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test2y42h0c:testdataset_2y42h0c"
-  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test5y42h0c:testdataset_5y42h0c"
-  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test10y42h0c:testdataset_10y42h0c"
-  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test50y42h0c:testdataset_50y42h0c"
-  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test1000y42h0c:testdataset_1000y42h0c"
-  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
-  # --- 02 baselines -> 100y + gabrielle ---
-  "02_FMPFTV7_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "02_FMPFTV7_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
-  "02_HeUNet_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "02_HeUNet_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
-  "02_HeUNet_SRx8_Filter_InbaL2:test100y42h0c:testdataset_100y42h0c"
-  "02_HeUNet_SRx8_Filter_InbaL2:gabrielle:testdataset_gabrielle"
-  "02_SwinFlood_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "02_SwinFlood_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
-  "02_SwinFlood_SRx8_Filter_InbaL2:test100y42h0c:testdataset_100y42h0c"
-  "02_SwinFlood_SRx8_Filter_InbaL2:gabrielle:testdataset_gabrielle"
-  "02_RSwinUNet_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "02_RSwinUNet_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
-  "02_RSwinUNet_SRx8_Filter_InbaL1:test100y42h0c:testdataset_100y42h0c"
-  "02_RSwinUNet_SRx8_Filter_InbaL1:gabrielle:testdataset_gabrielle"
-  # --- 03 input ablations -> 100y + gabrielle ---
-  "03_FMPFTV8_Abl_coarse_demOnly_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "03_FMPFTV8_Abl_coarse_demOnly_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
-  "03_FMPFTV8_Abl_coarse_zsOnly_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "03_FMPFTV8_Abl_coarse_zsOnly_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  # ===== Paper 2 M1 topography-guidance ablation (600k; val + 100y_42h only) =====
+  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_600k:test100y42h0c:testdataset_100y42h0c"
   "03_FMPFTV8_Abl_static_demOnly_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "03_FMPFTV8_Abl_static_demOnly_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
-  "03_FMPFTV8_Abl_static_noAspect_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "03_FMPFTV8_Abl_static_noAspect_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
-  "03_FMPFTV8_Abl_static_noDEM_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "03_FMPFTV8_Abl_static_noDEM_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
-  "03_FMPFTV8_Abl_static_noRough_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "03_FMPFTV8_Abl_static_noRough_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
   "03_FMPFTV8_Abl_static_noSlope_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "03_FMPFTV8_Abl_static_noSlope_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
   "03_FMPFTV8_Abl_static_noTWI_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "03_FMPFTV8_Abl_static_noTWI_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
-  # --- 04 loss / mechanism ablations -> 100y + gabrielle ---
-  "04_FMPFTV8_Abl_noAoiGate_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "04_FMPFTV8_Abl_noAoiGate_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
-  "04_FMPFTV8_Abl_noBCE_SRx8_Filter_InbaL1_LW:test100y42h0c:testdataset_100y42h0c"
-  "04_FMPFTV8_Abl_noBCE_SRx8_Filter_InbaL1_LW:gabrielle:testdataset_gabrielle"
-  "04_FMPFTV8_Abl_noFilter_SRx8_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "04_FMPFTV8_Abl_noFilter_SRx8_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
-  "04_FMPFTV8_Abl_noIBS_SRx8_Filter_L1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "04_FMPFTV8_Abl_noIBS_SRx8_Filter_L1BCE_LW:gabrielle:testdataset_gabrielle"
-  "04_FMPFTV8_Abl_noResidual_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "04_FMPFTV8_Abl_noResidual_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
-  # --- 05 architecture ablations -> 100y + gabrielle ---
-  "05_FMPFTV8Abl_convBottleneck_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "05_FMPFTV8Abl_convBottleneck_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  "03_FMPFTV8_Abl_static_noAspect_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  "03_FMPFTV8_Abl_static_noRough_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  "03_FMPFTV8_Abl_static_noDEM_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  "03_FMPFTV8_Abl_coarse_demOnly_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  "03_FMPFTV8_Abl_coarse_zsOnly_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  "05_FMPFTV8Abl_skipFinest_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
   "05_FMPFTV8Abl_noUshape_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "05_FMPFTV8Abl_noUshape_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
   "05_FMPFTV8Abl_noUshapeDFuse_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "05_FMPFTV8Abl_noUshapeDFuse_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
-  "05_FMPFTV9_Abl_deepSkip_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "05_FMPFTV9_Abl_deepSkip_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
-  "05_FMPFTV9_Abl_deepSkipFuse_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "05_FMPFTV9_Abl_deepSkipFuse_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  "05_FMPFTV8Abl_convBottleneck_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # ===== Paper 1 jobs (already aggregated) -- kept for provenance, commented =====
+  # --- 01 main model -> ALL 7 test sets (factor-8) ---
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test2y42h0c:testdataset_2y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test5y42h0c:testdataset_5y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test10y42h0c:testdataset_10y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test50y42h0c:testdataset_50y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test1000y42h0c:testdataset_1000y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  # --- 01 seed replicates -> 100y only (h-only; comment out for VAR=u/v) ---
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_seed1202:test100y42h0c:testdataset_100y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_seed2027:test100y42h0c:testdataset_100y42h0c"
+  # --- 02 baselines -> 100y + gabrielle ---
+  # "02_FMPFTV7_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "02_FMPFTV7_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  # "02_HeUNet_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "02_HeUNet_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  # "02_HeUNet_SRx8_Filter_InbaL2:test100y42h0c:testdataset_100y42h0c"
+  # "02_HeUNet_SRx8_Filter_InbaL2:gabrielle:testdataset_gabrielle"
+  # "02_SwinFlood_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "02_SwinFlood_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  # "02_SwinFlood_SRx8_Filter_InbaL2:test100y42h0c:testdataset_100y42h0c"
+  # "02_SwinFlood_SRx8_Filter_InbaL2:gabrielle:testdataset_gabrielle"
+  # "02_RSwinUNet_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "02_RSwinUNet_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  # "02_RSwinUNet_SRx8_Filter_InbaL1:test100y42h0c:testdataset_100y42h0c"
+  # "02_RSwinUNet_SRx8_Filter_InbaL1:gabrielle:testdataset_gabrielle"
+  # --- 03 input ablations -> 100y + gabrielle ---
+  # "03_FMPFTV8_Abl_coarse_demOnly_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "03_FMPFTV8_Abl_coarse_zsOnly_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "03_FMPFTV8_Abl_static_demOnly_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "03_FMPFTV8_Abl_static_noAspect_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "03_FMPFTV8_Abl_static_noDEM_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "03_FMPFTV8_Abl_static_noRough_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "03_FMPFTV8_Abl_static_noSlope_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "03_FMPFTV8_Abl_static_noTWI_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # --- 04 loss / mechanism ablations -> 100y + gabrielle ---
+  # "04_FMPFTV8_Abl_noAoiGate_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "04_FMPFTV8_Abl_noAoiGate_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  # "04_FMPFTV8_Abl_noBCE_SRx8_Filter_InbaL1_LW:test100y42h0c:testdataset_100y42h0c"
+  # "04_FMPFTV8_Abl_noBCE_SRx8_Filter_InbaL1_LW:gabrielle:testdataset_gabrielle"
+  # "04_FMPFTV8_Abl_noFilter_SRx8_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "04_FMPFTV8_Abl_noFilter_SRx8_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  # "04_FMPFTV8_Abl_noIBS_SRx8_Filter_L1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "04_FMPFTV8_Abl_noIBS_SRx8_Filter_L1BCE_LW:gabrielle:testdataset_gabrielle"
+  # "04_FMPFTV8_Abl_noResidual_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "04_FMPFTV8_Abl_noResidual_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  # --- 05 architecture ablations -> 100y + gabrielle ---
+  # "05_FMPFTV8Abl_convBottleneck_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "05_FMPFTV8Abl_convBottleneck_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  # "05_FMPFTV8Abl_noUshape_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "05_FMPFTV8Abl_noUshape_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  # "05_FMPFTV8Abl_noUshapeDFuse_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "05_FMPFTV8Abl_noUshapeDFuse_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  # "05_FMPFTV9_Abl_deepSkip_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "05_FMPFTV9_Abl_deepSkip_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  # "05_FMPFTV9_Abl_deepSkipFuse_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "05_FMPFTV9_Abl_deepSkipFuse_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
   # --- 06 downscaling-factor models -> 100y + gabrielle on their OWN factor test sets ---
-  "06_FMPFTV8_SRx2_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c_ds2"
-  "06_FMPFTV8_SRx2_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle_ds2"
-  "06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c_ds4"
-  "06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle_ds4"
-  "06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c_ds16"
-  "06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle_ds16"
+  # "06_FMPFTV8_SRx2_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c_ds2"
+  # "06_FMPFTV8_SRx2_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle_ds2"
+  # "06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c_ds4"
+  # "06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle_ds4"
+  # "06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c_ds16"
+  # "06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle_ds16"
+  # ===== Paper 2 M3 scale grid (1M; val + 100y_42h). UNCOMMENT once its test_flood_map jobs are done
+  #       (and comment the M1 block above if M1 is already aggregated). Row A lines = re-aggregation only
+  #       (no new inference) to add PSNR/SSIM + the S16 edge/centre columns. =====
+  # --- Row B (fine 512) ---
+  # "06_FMPFTV8_SRx2_PF512_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c_ds2_pf512"
+  # "06_FMPFTV8_SRx4_PF512_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c_ds4_pf512"
+  # "06_FMPFTV8_SRx16_PF512_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c_ds16_pf512"
+  # --- Row A (coarse 64) + s = 8 ---
+  # "06_FMPFTV8_SRx2_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c_ds2"
+  # "06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c_ds4"
+  # "06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c_ds16"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # ===== Paper 2 M2 static-input probes on 01 @1M (val + 100y_42h). UNCOMMENT after the M2probe test_flood_map
+  #       jobs are done. Reference row = the existing 01 1M eval (no extra job). No new baselines needed. =====
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_noise_s0p1:test100y42h0c:testdataset_100y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_noise_s0p25:test100y42h0c:testdataset_100y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_noise_s0p5:test100y42h0c:testdataset_100y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_noise_s1p0:test100y42h0c:testdataset_100y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_noisedem_s0p5:test100y42h0c:testdataset_100y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_shiftN1:test100y42h0c:testdataset_100y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_shiftN2:test100y42h0c:testdataset_100y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_shiftN4:test100y42h0c:testdataset_100y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_shiftE1:test100y42h0c:testdataset_100y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_shiftE2:test100y42h0c:testdataset_100y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_shiftE4:test100y42h0c:testdataset_100y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_res16:test100y42h0c:testdataset_100y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_res32:test100y42h0c:testdataset_100y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_res64:test100y42h0c:testdataset_100y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_meanabl_dem:test100y42h0c:testdataset_100y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_meanabl_roughness:test100y42h0c:testdataset_100y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_meanabl_slope:test100y42h0c:testdataset_100y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_meanabl_twi:test100y42h0c:testdataset_100y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M2_meanabl_aspect:test100y42h0c:testdataset_100y42h0c"
+  # ===== Paper 2 M4 overlap tiling on 01 @1M (all 7 test sets; main text = 100y). UNCOMMENT after tools/infer_overlap.pbs.
+  #       Non-overlap row: 100y = M4nonoverlap (re-run saved by infer_overlap.pbs, validated against 01's own
+  #       predictions); other sets = the existing 01 1M evaluation (review C1: not re-saved, disk). =====
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M4avg:test2y42h0c:testdataset_2y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M4centre:test2y42h0c:testdataset_2y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M4hann:test2y42h0c:testdataset_2y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test2y42h0c:testdataset_2y42h0c"   # non-overlap row = existing 01 1M eval
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M4avg:test5y42h0c:testdataset_5y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M4centre:test5y42h0c:testdataset_5y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M4hann:test5y42h0c:testdataset_5y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test5y42h0c:testdataset_5y42h0c"   # non-overlap row = existing 01 1M eval
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M4avg:test10y42h0c:testdataset_10y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M4centre:test10y42h0c:testdataset_10y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M4hann:test10y42h0c:testdataset_10y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test10y42h0c:testdataset_10y42h0c"   # non-overlap row = existing 01 1M eval
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M4avg:test50y42h0c:testdataset_50y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M4centre:test50y42h0c:testdataset_50y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M4hann:test50y42h0c:testdataset_50y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test50y42h0c:testdataset_50y42h0c"   # non-overlap row = existing 01 1M eval
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M4avg:test100y42h0c:testdataset_100y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M4centre:test100y42h0c:testdataset_100y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M4hann:test100y42h0c:testdataset_100y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M4nonoverlap:test100y42h0c:testdataset_100y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M4avg:test1000y42h0c:testdataset_1000y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M4centre:test1000y42h0c:testdataset_1000y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M4hann:test1000y42h0c:testdataset_1000y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test1000y42h0c:testdataset_1000y42h0c"   # non-overlap row = existing 01 1M eval
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M4avg:gabrielle:testdataset_gabrielle"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M4centre:gabrielle:testdataset_gabrielle"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M4hann:gabrielle:testdataset_gabrielle"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"   # non-overlap row = existing 01 1M eval
+  # ===== Paper 2 S1 guidance x factor: row (j) noUshape at 1M (val + 100y). UNCOMMENT after its test_flood_map jobs.
+  #       The matching FULL models (Row B + 01 1M) and the baselines are in the M3 block -> uncomment that too. =====
+  # "06_FMPFTV8Abl_noUshape_SRx2_PF512_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c_ds2_pf512"
+  # "06_FMPFTV8Abl_noUshape_SRx4_PF512_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c_ds4_pf512"
+  # "06_FMPFTV8Abl_noUshape_SRx16_PF512_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c_ds16_pf512"
+  # "05_FMPFTV8Abl_noUshape_SRx8_Filter_InbaL1BCE_LW_1M:test100y42h0c:testdataset_100y42h0c"
+  # ===== Paper 2 S2 Delta-t coarse input at 1M (val + 100y; gabrielle optional). UNCOMMENT after its test_flood_map jobs.
+  #       Single-frame reference = 01 at 1M (its val/100y predictions must be in results/ - restore from archive). =====
+  # "07_FMPFTV8_SRx8_dtc1_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "07_FMPFTV8_SRx8_dtc3_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "07_FMPFTV8_SRx8_dts1_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "07_FMPFTV8_SRx8_dts3_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"   # single-frame reference
+  # --- optional: Gabrielle ---
+  # "07_FMPFTV8_SRx8_dtc1_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  # "07_FMPFTV8_SRx8_dtc3_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  # "07_FMPFTV8_SRx8_dts1_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  # "07_FMPFTV8_SRx8_dts3_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
+  # ===== Paper 2 S3(a) cross-resolution: 8 m-trained models on the TRUE 16 m BG-Flood run of 100y_42h (1M).
+  #       UNCOMMENT after the *_eval_test100y42h0c_xres16 test_flood_map jobs. Same-model 8 m references =
+  #       01 on testdataset_100y42h0c (S2 block) and 06_*_PF512 on testdataset_100y42h0c_ds{2,4}_pf512 (M3 block). =====
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test100y42h0c_xres16:testdataset_100y42h0c_xres16_ds8"
+  # "06_FMPFTV8_SRx4_PF512_Filter_InbaL1BCE_LW:test100y42h0c_xres16:testdataset_100y42h0c_xres16_ds4"
+  # "06_FMPFTV8_SRx2_PF512_Filter_InbaL1BCE_LW:test100y42h0c_xres16:testdataset_100y42h0c_xres16_ds2"
+  # ===== Paper 2 S4 beyond-design: 01 @1M on 1000y_48h x1.25 / x1.5 / x2 (+ x3 optional) (UNCOMMENT after their
+  #       test_flood_map jobs). x1 column = 1000y_48h full maps labelled "seen scenario" + 1000y_42h as the
+  #       unseen same-magnitude reference (its 01 1M predictions must be in results/: restore or re-run). =====
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test1000y48h0cx1p25:testdataset_1000y48h0cx1p25"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test1000y48h0cx1p5:testdataset_1000y48h0cx1p5"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test1000y48h0cx2p0:testdataset_1000y48h0cx2p0"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test1000y48h0cx3p0:testdataset_1000y48h0cx3p0"   # OPTIONAL stress test
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test1000y48h0c:testdataset_1000y48h0c"           # x1, seen scenario
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test1000y42h0c:testdataset_1000y42h0c"           # x1, unseen reference
+  # ===== Paper 2 S5 unseen rainfall pattern: 01 @1M on 100y_48h double peak 1:1 / 2:1 (UNCOMMENT after their
+  #       test_flood_map jobs). Single-peak column = 100y_48h full maps labelled "seen scenario" + 100y_42h as the
+  #       unseen single-peak reference (also in the S2 / M1 blocks -- uncomment it only once). =====
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test100y48h0cdp11:testdataset_100y48h0cdp11"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test100y48h0cdp21:testdataset_100y48h0cdp21"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test100y48h0c:testdataset_100y48h0c"             # single peak, seen scenario
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"             # single peak, unseen ref
+  # ===== Paper 2 S8 released models under one protocol + TG-SAT (1M EMA; val + 100y_42h). UNCOMMENT each line after
+  #       its test_flood_map jobs are done. Flood-DM: run its valsub256 T_s sweep first and write the chosen t_start into
+  #       its eval ymls (they refuse to run with t_start: ~). Paper 1 rows (TG-PFT, PFT-V7, UNet, SwinFlood, RSwinUNet)
+  #       are NOT re-evaluated here: their numbers are final.
+  #       Baselines: ds8 val + test100y42h0c, already computed for M1 (no extra baseline line needed). =====
+  # "08_FMSATV8_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "08_FMSATV7_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "08_FLOSR_SRx8_Filter_InbaL1:test100y42h0c:testdataset_100y42h0c"
+  # "08_SongDenseUNet_SRx8_Filter_InbaL1:test100y42h0c:testdataset_100y42h0c"
+  # "08_ShenCBAMGAN_SRx8_Filter_OwnLoss:test100y42h0c:testdataset_100y42h0c"
+  # "08_FloodDM_SRx8_Filter_EpsL1:test100y42h0c:testdataset_100y42h0c"
+  # "08_FloodDM_SRx8_Filter_EpsL1:test100y42h0c_400k:testdataset_100y42h0c"   # Flood-DM at their 400k budget (SI)
+)
+
+# Paper 2 S4/S5: per-cell TRAINING max-depth maps (tools/make_train_maxdepth.sh, NeSI -> copy the .npz here;
+# fine target side + coarse input side, 18 scenarios x 48 steps). For the eval tags listed, model AND baseline evals
+# add 'beyond_train_max' (extrapolation fraction, > max + 0.1 m, pooled + peak hour).
+# A listed tag whose map is missing is SKIPPED with an error line (never silently evaluated without it).
+TRAINMAX_NPZ="$ROOT/dataset_ds8_filtered_thr0p1_min5100_full/train_maxdepth_h.npz"
+TRAINMAX_TAGS=(
+  "test1000y48h0cx1p25"
+  "test1000y48h0cx1p5"
+  "test1000y48h0cx2p0"
+  "test1000y48h0cx3p0"
+  "test100y48h0cdp11"           # S5: expected ~0 (no magnitude extrapolation) -> evidence S5 tests the pattern only
+  "test100y48h0cdp21"
+  "test1000y48h0c"              # seen scenarios: exactly 0 by construction (sanity check of the maps)
+  "test100y48h0c"
+  # "test1000y42h0c"            # unseen refs: meaningful, BUT these tags are also used by M1/M2/S2/... blocks ->
+  # "test100y42h0c"             # listing them makes those evals require the map too (skipped if it is missing)
 )
 
 # coarse-upsample baselines (bicubic upsample of the coarse map). MODEL-INDEPENDENT
@@ -185,39 +411,78 @@ TEST_JOBS=(
 # FORCE_BASELINES: 0 = auto-skip any baseline whose output json already exists in
 #                  results/_baselines/ (leave the lists complete and just resubmit);
 #                  1 = recompute and overwrite existing outputs.
+# DRY_RUN=1: print the ACTIVE job lists (+ whether each vis-root / index exists) and exit without evaluating.
+# Recommended before every submission: there are many commented M1..S5 blocks -- open ONE block at a time,
+# `bash -n` this file, then run it once with DRY_RUN=1 (e.g. `bash tools/eval_flood_batch.pbs` on the login node),
+# set DRY_RUN=0 and qsub.
+DRY_RUN=0
 RUN_BASELINES=1
-FORCE_BASELINES=0
+FORCE_BASELINES=1   # Paper 2: recompute ds8 val + 100y baselines so they carry PSNR/SSIM
 # VAL baseline -> "selector_exp_base:train_dataset_dir" (selector's val vis pins the subset)
 VAL_BASELINE_JOBS=(
-  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  "06_FMPFTV8_SRx2_Filter_InbaL1BCE_LW:dataset_ds2_filtered_thr0p1_min25100_full"
-  "06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW:dataset_ds4_filtered_thr0p1_min10100_full"
-  "06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW:dataset_ds16_filtered_thr0p1_min2100_full"
+  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_600k:dataset_ds8_filtered_thr0p1_min5100_full"   # Paper 2 M1 (same val subset)
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "06_FMPFTV8_SRx2_Filter_InbaL1BCE_LW:dataset_ds2_filtered_thr0p1_min25100_full"
+  # "06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW:dataset_ds4_filtered_thr0p1_min10100_full"
+  # "06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW:dataset_ds16_filtered_thr0p1_min2100_full"
+  # --- Paper 2 M3 (uncomment with the M3 block; Row B outputs carry _pf512) ---
+  # "06_FMPFTV8_SRx2_PF512_Filter_InbaL1BCE_LW:dataset_ds2_pf512_filtered_thr0p1_min25100_full"
+  # "06_FMPFTV8_SRx4_PF512_Filter_InbaL1BCE_LW:dataset_ds4_pf512_filtered_thr0p1_min10100_full"
+  # "06_FMPFTV8_SRx16_PF512_Filter_InbaL1BCE_LW:dataset_ds16_pf512_filtered_thr0p1_min2100_full"
+  # "06_FMPFTV8_SRx2_Filter_InbaL1BCE_LW:dataset_ds2_filtered_thr0p1_min25100_full"
+  # "06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW:dataset_ds4_filtered_thr0p1_min10100_full"
+  # "06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW:dataset_ds16_filtered_thr0p1_min2100_full"
 )
 # TEST baseline -> "eval_tag:test_dataset_dir"
 TEST_BASELINE_JOBS=(
-  "test2y42h0c:testdataset_2y42h0c"
-  "test5y42h0c:testdataset_5y42h0c"
-  "test10y42h0c:testdataset_10y42h0c"
-  "test50y42h0c:testdataset_50y42h0c"
-  "test100y42h0c:testdataset_100y42h0c"
-  "test1000y42h0c:testdataset_1000y42h0c"
-  "gabrielle:testdataset_gabrielle"
-  "test100y42h0c:testdataset_100y42h0c_ds2"
-  "gabrielle:testdataset_gabrielle_ds2"
-  "test100y42h0c:testdataset_100y42h0c_ds4"
-  "gabrielle:testdataset_gabrielle_ds4"
-  "test100y42h0c:testdataset_100y42h0c_ds16"
-  "gabrielle:testdataset_gabrielle_ds16"
+  # "test2y42h0c:testdataset_2y42h0c"
+  # "test5y42h0c:testdataset_5y42h0c"
+  # "test10y42h0c:testdataset_10y42h0c"
+  # "test50y42h0c:testdataset_50y42h0c"
+  "test100y42h0c:testdataset_100y42h0c"   # Paper 2 M1
+  # "test100y42h0c:testdataset_100y42h0c"
+  # "test1000y42h0c:testdataset_1000y42h0c"
+  # "gabrielle:testdataset_gabrielle"
+  # "test100y42h0c:testdataset_100y42h0c_ds2"
+  # "gabrielle:testdataset_gabrielle_ds2"
+  # "test100y42h0c:testdataset_100y42h0c_ds4"
+  # "gabrielle:testdataset_gabrielle_ds4"
+  # "test100y42h0c:testdataset_100y42h0c_ds16"
+  # "gabrielle:testdataset_gabrielle_ds16"
+  # --- Paper 2 M3 (uncomment with the M3 block) ---
+  # "test100y42h0c:testdataset_100y42h0c_ds2_pf512"
+  # "test100y42h0c:testdataset_100y42h0c_ds4_pf512"
+  # "test100y42h0c:testdataset_100y42h0c_ds16_pf512"
+  # "test100y42h0c:testdataset_100y42h0c_ds2"
+  # "test100y42h0c:testdataset_100y42h0c_ds4"
+  # "test100y42h0c:testdataset_100y42h0c_ds16"
+  # --- Paper 2 S3(a) (uncomment with the S3 block; bicubic of the coarse map onto the 16 m grid) ---
+  # "test100y42h0c_xres16:testdataset_100y42h0c_xres16_ds8"
+  # "test100y42h0c_xres16:testdataset_100y42h0c_xres16_ds4"
+  # "test100y42h0c_xres16:testdataset_100y42h0c_xres16_ds2"
+  # --- Paper 2 S4 (uncomment with the S4 block; bicubic of the dx64 map onto the 8 m grid) ---
+  # "test1000y48h0cx1p25:testdataset_1000y48h0cx1p25"
+  # "test1000y48h0cx1p5:testdataset_1000y48h0cx1p5"
+  # "test1000y48h0cx2p0:testdataset_1000y48h0cx2p0"
+  # "test1000y48h0cx3p0:testdataset_1000y48h0cx3p0"     # OPTIONAL
+  # "test1000y48h0c:testdataset_1000y48h0c"             # x1, seen scenario
+  # --- Paper 2 S5 (uncomment with the S5 block) ---
+  # "test100y48h0cdp11:testdataset_100y48h0cdp11"
+  # "test100y48h0cdp21:testdataset_100y48h0cdp21"
+  # "test100y48h0c:testdataset_100y48h0c"               # single peak, seen scenario
 )
 # =======================================================================
 
 # dataset dir (dataset_ds8_..._full or testdataset_..._ds16) -> factor tag ds2/4/8/16.
 factor_tag () {
+  # Paper 2 M3 Row B dirs (fine patch 512) carry "_pf512" -> tag dsN_pf512, so their baselines
+  # never overwrite the Row A (coarse 64) baseline files of the same factor.
+  local pf=""
+  case "$1" in *_pf512*) pf="_pf512" ;; esac
   case "$1" in
-    *ds2_*|*_ds2)   echo ds2  ;;
-    *ds4_*|*_ds4)   echo ds4  ;;
-    *ds16_*|*_ds16) echo ds16 ;;
+    *ds2_*|*_ds2)   echo "ds2${pf}"  ;;
+    *ds4_*|*_ds4)   echo "ds4${pf}"  ;;
+    *ds16_*|*_ds16) echo "ds16${pf}" ;;
     *)              echo ds8  ;;   # factor-8 test dirs have no suffix; ds8 training dir
   esac
 }
@@ -237,25 +502,69 @@ eval_val () {
     --out-json  "$out/eval_val_summary.json" \
     --out-csv-patch    "$out/eval_val_patch.csv" \
     --out-csv-time     "$out/eval_val_time.csv" \
-    --out-csv-scenario "$out/eval_val_scenario.csv"
+    --out-csv-scenario "$out/eval_val_scenario.csv" \
+    --require-complete val --split-json "$ROOT/$ds/$SPLIT_JSON_NAME" \
+    || { echo "[FAILED][val] $exp"; FAILED+=("$exp:val"); return 0; }
 }
 
 # ---- model eval on a TEST set (read *_global; complete maps) ----
+# prints the extra eval_flood.py args for a tag ("" if not a TRAINMAX tag); returns 1 if the map is missing
+tmax_args () {
+  local t
+  for t in "${TRAINMAX_TAGS[@]}"; do
+    if [[ "$t" == "$1" ]]; then
+      if [[ "$VAR" != "h" ]]; then return 0; fi
+      if [[ ! -f "$TRAINMAX_NPZ" ]]; then echo "[error][$1] TRAINMAX_NPZ missing: $TRAINMAX_NPZ" >&2; return 1; fi
+      echo "--train-maxdepth-npz $TRAINMAX_NPZ"; return 0
+    fi
+  done
+  return 0
+}
+
 eval_one_test () {
   local exp="$1" tag="$2" dsdir="$3"
   local idx="$ROOT/$dsdir/$TEST_INDEX"
   local vis="$RESULTS/${exp}_eval_${tag}${SUF}/visualization"
   local out="$RESULTS/${exp}_eval_${tag}${SUF}"
   if [[ ! -d "$vis" ]]; then echo "[skip][$tag] no vis-root: $vis"; return; fi
-  echo "[eval][$tag] $exp  (ds=$dsdir)"
+  local TMX
+  if ! TMX=$(tmax_args "$tag"); then echo "[skip][$tag] $exp: train-max map missing"; return; fi
+  echo "[eval][$tag] $exp  (ds=$dsdir) ${TMX}"
   python tools/eval_flood.py \
     --index-csv "$idx" \
     --vis-root  "$vis" \
-    --var "$VAR" $ABS \
+    --var "$VAR" $ABS $TMX \
     --out-json  "$out/eval_${tag}_summary.json" \
     --out-csv-time     "$out/eval_${tag}_time.csv" \
-    --out-csv-scenario "$out/eval_${tag}_scenario.csv"
+    --out-csv-scenario "$out/eval_${tag}_scenario.csv" \
+    --require-complete test \
+    || { echo "[FAILED][$tag] $exp"; FAILED+=("$exp:$tag"); return 0; }
 }
+
+if [[ "$DRY_RUN" == "1" ]]; then
+  echo "==================== DRY RUN (nothing is evaluated) ===================="
+  echo "VAR=$VAR  RUN_BASELINES=$RUN_BASELINES  FORCE_BASELINES=$FORCE_BASELINES"
+  echo "--- VAL_JOBS (${#VAL_JOBS[@]})"
+  for job in "${VAL_JOBS[@]}"; do
+    e="${job%%:*}${EXPSUF}"; v="$RESULTS/${e}_eval_val${SUF}/visualization"
+    printf '  %-70s %s\n' "$e" "$([[ -d "$v" ]] && echo 'vis OK' || echo 'vis MISSING')"
+  done
+  echo "--- TEST_JOBS (${#TEST_JOBS[@]})"
+  for job in "${TEST_JOBS[@]}"; do
+    IFS=":" read -r eb tg ds <<< "$job"; e="${eb}${EXPSUF}"; v="$RESULTS/${e}_eval_${tg}${SUF}/visualization"
+    tm=""; if TMX=$(tmax_args "$tg" 2>/dev/null); then [[ -n "$TMX" ]] && tm=" +train-max"; else tm=" train-max MAP MISSING"; fi
+    printf '  %-60s %-24s %s%s\n' "$e" "$tg" "$([[ -d "$v" ]] && echo 'vis OK' || echo 'vis MISSING')" "$tm"
+  done
+  if [[ "$RUN_BASELINES" == "1" ]]; then
+    echo "--- VAL_BASELINE_JOBS (${#VAL_BASELINE_JOBS[@]})"; for job in "${VAL_BASELINE_JOBS[@]}"; do echo "  $job"; done
+    echo "--- TEST_BASELINE_JOBS (${#TEST_BASELINE_JOBS[@]})"
+    for job in "${TEST_BASELINE_JOBS[@]}"; do
+      IFS=":" read -r tg ds <<< "$job"
+      printf '  %-24s %-40s %s\n' "$tg" "$ds" "$([[ -f "$ROOT/$ds/$TEST_INDEX" ]] && echo 'index OK' || echo 'index MISSING')"
+    done
+  fi
+  exit 0
+fi
 
 echo "==================== MODEL EVALS ===================="
 for job in "${VAL_JOBS[@]}"; do
@@ -290,7 +599,9 @@ if [[ "$RUN_BASELINES" == "1" ]]; then
       --vis-root  "$selvis" \
       --var "$VAR" $ABS \
       --pred-source coarse_upsample \
-      --out-json "$outfile"
+      --out-json "$outfile" \
+      --require-complete val --split-json "$ROOT/$ds/$SPLIT_JSON_NAME" \
+      || { echo "[FAILED][baseline][val] $ds"; FAILED+=("baseline:val:$ds"); continue; }
   done
 
   echo "==================== TEST BASELINES ===================="
@@ -306,14 +617,22 @@ if [[ "$RUN_BASELINES" == "1" ]]; then
     idx="$ROOT/$dsdir/$TEST_INDEX"
     if [[ ! -f "$idx" ]]; then echo "[skip][baseline][$tag] no index: $idx"; continue; fi
     _TBASE_DONE[${tag}_${dstag}]=1
-    echo "[baseline][$tag] dataset=$dsdir ($dstag)"
+    if ! TMX=$(tmax_args "$tag"); then echo "[skip][baseline][$tag] train-max map missing"; continue; fi
+    echo "[baseline][$tag] dataset=$dsdir ($dstag) ${TMX}"
     python tools/eval_flood.py \
       --index-csv "$idx" \
-      --var "$VAR" $ABS \
+      --var "$VAR" $ABS $TMX \
       --pred-source coarse_upsample \
       --out-json "$outfile" \
-      --out-csv-time "${outfile%.json}_time.csv"
+      --out-csv-time "${outfile%.json}_time.csv" \
+      --require-complete test \
+      || { echo "[FAILED][baseline][$tag] $dsdir"; FAILED+=("baseline:$tag:$dsdir"); continue; }
   done
 fi
 
+if (( ${#FAILED[@]} > 0 )); then
+  echo "==================== ${#FAILED[@]} JOB(S) FAILED (incomplete / unreadable predictions -> rerun inference) ===================="
+  for f in "${FAILED[@]}"; do echo "  $f"; done
+  exit 1
+fi
 echo "==================== DONE ===================="

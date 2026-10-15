@@ -50,6 +50,7 @@ import glob
 import csv
 import json
 import argparse
+import math
 from collections import defaultdict
 
 import numpy as np
@@ -126,7 +127,8 @@ def build_index_map(index_csv: str):
     mp = {}
     with open(index_csv, "r", newline="") as f:
         r = csv.DictReader(f)
-        for row in r:
+        for i, row in enumerate(r):
+            row["_row_id"] = i          # data-row position = basicsr.utils.load_index_csv convention (split ids)
             try:
                 var = row["var"]
                 scenario = row["scenario"]
@@ -1092,6 +1094,97 @@ def add_psnr_ssim(patch_rows, time_rows, scenario_rows, dataset_global, idx, vis
     return ds_out
 
 
+def add_trainmax_stats(patch_rows, time_rows, idx, vis_root, pred_source, npz_path, margin=0.1):
+    """Paper 2 S4/S5 extrapolation fraction (spec §S4, decided 2026-10-14), from tools/make_train_maxdepth.py.
+
+    T  = per-cell training maximum depth on the fine 8 m grid (target side), Tc = the same on the coarse grid of the
+    model input (input side); both over the 18 training scenarios x 48 steps (train + val), AOI cells only; NaN =
+    cell never seen in training -> excluded from the fractions and counted as *_unseen.
+      target side : above    = AOI fine cell with gt > T + margin                 frac_above = #above / #AOI(seen)
+                    frac_wet_above = #above / #(gt >= 0.1)   (above implies wet: T >= 0, margin = 0.1)
+                    frac_wet_new   = #(gt >= 0.1 & T < 0.1) / #(gt >= 0.1)     (wet now, never wet in training)
+                    on the above cells: rmse, bias = mean(pred - gt), mean excess = mean(gt - T), hit rate (pred >= 0.1)
+      input side  : in_above = AOI coarse cell with coarse input > Tc + margin   in_frac_above = #in_above / #AOI_c(seen)
+                    in_frac_wet_above = #in_above / #(coarse >= 0.1)
+    Pooled over all evaluated patches and time steps (cell-pooled like _global), plus the PEAK HOUR per scenario =
+    the time step with the largest number of wet (>= 0.1 m) target cells, i.e. the flood-extent peak. Each (scenario,
+    t) time row gains tmax_* columns. Input-side numbers depend only on the data (identical for model and baseline)."""
+    z = np.load(npz_path)
+    T, Tc = z["maxdepth"], z["maxdepth_coarse"]
+    P0, Pc0 = int(z["patch_fine"]), int(z["patch_coarse"])
+    by_key = {(r["scenario"], r["t"]): r for r in time_rows}
+    KEYS = ("n_seen", "n_unseen", "n_above", "n_wet", "n_wet_new", "sse", "se", "excess", "hit",
+            "nc_seen", "nc_unseen", "nc_above", "nc_wet")
+    per_t = defaultdict(lambda: dict.fromkeys(KEYS, 0.0))
+    for r in patch_rows:
+        pred, gt, mask, row, _ = _load_patch_pred_gt_mask(r["core"], idx, vis_root, pred_source)
+        P = gt.shape[0]
+        if gt.shape != (P0, P0):
+            raise RuntimeError(f"patch {gt.shape} != train-max map patch {P0} ({r['core']})")
+        y0, x0 = r["patch_row"] * P, r["patch_col"] * P
+        if y0 + P > T.shape[0] or x0 + P > T.shape[1]:
+            raise RuntimeError(f"patch {r['core']} outside the train-max canvas {T.shape}")
+        hc = load_hw_npy(row["coarse_path"], "coarse")
+        mc = np.asarray(load_hw_npy(row["mask_coarse_path"], "mask")) > 0.5
+        if hc.shape != (Pc0, Pc0):
+            raise RuntimeError(f"coarse patch {hc.shape} != train-max coarse patch {Pc0} ({r['core']})")
+        t = T[y0:y0 + P, x0:x0 + P].astype(np.float64)
+        tc = Tc[r["patch_row"] * Pc0:(r["patch_row"] + 1) * Pc0, r["patch_col"] * Pc0:(r["patch_col"] + 1) * Pc0].astype(np.float64)
+        m = np.asarray(mask) > 0.5
+        g = np.asarray(gt, dtype=np.float64)
+        pr = np.asarray(pred, dtype=np.float64)
+        c = np.asarray(hc, dtype=np.float64)
+        seen, seen_c = m & np.isfinite(t), mc & np.isfinite(tc)
+        wet = seen & (g >= DEPTH_EVENT_THRESHOLD)
+        above = seen & (g > t + margin)
+        a = per_t[(r["scenario"], r["t"])]
+        a["n_seen"] += seen.sum(); a["n_unseen"] += (m & ~np.isfinite(t)).sum()
+        a["n_above"] += above.sum(); a["n_wet"] += wet.sum()
+        a["n_wet_new"] += (wet & (t < DEPTH_EVENT_THRESHOLD)).sum()
+        if above.any():
+            d = pr[above] - g[above]
+            a["sse"] += float((d * d).sum()); a["se"] += float(d.sum())
+            a["excess"] += float((g[above] - t[above]).sum()); a["hit"] += (pr[above] >= DEPTH_EVENT_THRESHOLD).sum()
+        a["nc_seen"] += seen_c.sum(); a["nc_unseen"] += (mc & ~np.isfinite(tc)).sum()
+        a["nc_above"] += (seen_c & (c > tc + margin)).sum(); a["nc_wet"] += (seen_c & (c >= DEPTH_EVENT_THRESHOLD)).sum()
+
+    q = lambda x, y: (float(x) / float(y)) if y else float("nan")
+
+    def summarise(a):
+        na = a["n_above"]
+        return {"frac_above": q(na, a["n_seen"]), "frac_wet_above": q(na, a["n_wet"]),
+                "frac_wet_new": q(a["n_wet_new"], a["n_wet"]),
+                "above_rmse": math.sqrt(a["sse"] / na) if na else float("nan"), "above_bias": q(a["se"], na),
+                "above_mean_excess_m": q(a["excess"], na), "above_hit_rate": q(a["hit"], na),
+                "in_frac_above": q(a["nc_above"], a["nc_seen"]), "in_frac_wet_above": q(a["nc_above"], a["nc_wet"]),
+                "n_above": int(na), "n_wet": int(a["n_wet"]), "n_aoi_cells_seen": int(a["n_seen"]),
+                "n_aoi_cells_unseen": int(a["n_unseen"]), "n_in_above": int(a["nc_above"]),
+                "n_in_wet": int(a["nc_wet"]), "n_aoi_coarse_seen": int(a["nc_seen"]),
+                "n_aoi_coarse_unseen": int(a["nc_unseen"])}
+
+    tot = dict.fromkeys(KEYS, 0.0)
+    for key, a in per_t.items():
+        for k in KEYS:
+            tot[k] += a[k]
+        if key in by_key:
+            sm = summarise(a)
+            for k in ("frac_above", "frac_wet_above", "in_frac_above", "in_frac_wet_above", "n_above", "n_wet"):
+                by_key[key][f"tmax_{k}"] = sm[k]
+    peak = {}
+    for sc in sorted({k[0] for k in per_t}):
+        ks = [k for k in per_t if k[0] == sc]
+        kp = max(ks, key=lambda k: (per_t[k]["n_wet"], k[1]))
+        peak[sc] = {"t": kp[1], **summarise(per_t[kp])}
+    return {
+        "train_maxdepth_npz": os.path.abspath(npz_path), "margin_m": float(margin),
+        "map_split": str(z["split"]) if "split" in z else "", **summarise(tot), "peak_hour": peak,
+        "definition": "per-cell training max over the 18 training scenarios x 48 steps (train+val), AOI; target side "
+                      "= fine GT vs fine map T, input side = coarse input vs coarse map Tc; above = value > max + margin; "
+                      "wet = >= 0.1 m; pooled over all evaluated patches and steps; unseen (NaN) cells excluded; "
+                      "peak_hour = per scenario, the step with the most wet target cells",
+    }
+
+
 # =========================================================
 # Single-query helpers (one patch, or one assembled map)
 # =========================================================
@@ -1196,6 +1289,16 @@ def main():
                     help="PSNR is always reported. SSIM: 'auto' (default) = ssim_patch always + ssim_map "
                          "when every (scenario,t) map is complete (test sets; never val); 'patch' = "
                          "ssim_patch only; 'none' = no SSIM (skips the second pass).")
+    ap.add_argument("--train-maxdepth-npz", default="",
+                    help="Paper 2 S4: per-cell training max-depth map (tools/make_train_maxdepth.py). If given, the "
+                         "JSON gains 'beyond_train_max' (fraction of cells deeper than ever trained + errors there).")
+    ap.add_argument("--trainmax-margin", type=float, default=0.1,
+                    help="above = value > per-cell training max + margin [m] (spec: 0.1 m)")
+    ap.add_argument("--require-complete", choices=["off", "test", "val"], default="off",
+                    help="abort unless EVERY expected patch was evaluated: test = all filtered_out==0 rows of --var in the "
+                         "index; val = those whose row id is in split['val'] of --split-json. Incompatible with --limit.")
+    ap.add_argument("--split-json", default="",
+                    help="split_stats JSON of the training dataset (for --require-complete val)")
     ap.add_argument("--debug", action="store_true")
 
     args = ap.parse_args()
@@ -1294,6 +1397,26 @@ def main():
             if args.debug:
                 print(f"[warn] skip {core}: {e}")
 
+    # completeness guard (review 2026-10-14 A1): a prediction folder of a killed inference job must never become a number
+    if args.require_complete != "off":
+        if args.limit:
+            raise SystemExit("[ERROR] --require-complete cannot be combined with --limit")
+        exp = {c for c, row in idx.items()
+               if str(row.get("filtered_out", "0")) == "0" and (not args.var or row.get("var") == args.var)}
+        if args.require_complete == "val":
+            if not args.split_json:
+                raise SystemExit("[ERROR] --require-complete val needs --split-json")
+            with open(args.split_json) as f:
+                ids = {int(i) for i in json.load(f)["split"]["val"]}
+            exp = {c for c in exp if int(idx[c]["_row_id"]) in ids}
+        got = {r["core"] for r in patch_rows}
+        missing, extra = sorted(exp - got), sorted(got - exp)
+        if skipped or missing or extra:
+            raise SystemExit(f"[ERROR] INCOMPLETE evaluation: expected {len(exp)} patches, evaluated {len(got)}, "
+                             f"missing {len(missing)} (e.g. {missing[:3]}), unexpected {len(extra)} (e.g. {extra[:3]}), "
+                             f"load-skipped {skipped} -> the inference job did not finish or wrote the wrong set; rerun it")
+        print(f"[complete] {len(got)} / {len(exp)} expected patches evaluated")
+
     if not patch_rows:
         raise RuntimeError("No valid patches processed.")
 
@@ -1360,6 +1483,17 @@ def main():
     dataset_metrics_global.update(add_psnr_ssim(
         patch_rows, time_rows, scenario_rows, dataset_metrics_global, idx, args.vis_root,
         args.pred_source, args.var, ssim_mode=args.ssim))
+    beyond = None
+    if args.train_maxdepth_npz:
+        if USE_ABS:
+            raise SystemExit("[ERROR] --train-maxdepth-npz is for water depth (h) only")
+        beyond = add_trainmax_stats(patch_rows, time_rows, idx, args.vis_root, args.pred_source,
+                                    args.train_maxdepth_npz, args.trainmax_margin)
+        print(f"[beyond_train_max] target frac_above={beyond['frac_above']:.4%} "
+              f"(wet {beyond['frac_wet_above']:.4%}, {beyond['n_above']}/{beyond['n_wet']}); input "
+              f"in_frac_above={beyond['in_frac_above']:.4%}; rmse/bias on above cells "
+              f"{beyond['above_rmse']:.3f}/{beyond['above_bias']:+.3f} m; peak hours "
+              f"{ {k: v['t'] for k, v in beyond['peak_hour'].items()} }")
     for sr in scenario_rows:
         sr.update(mapmean_from_time_rows(time_by_scenario.get(sr["scenario"], [])))
     dataset_metrics_mapmean = mapmean_from_time_rows(time_rows)
@@ -1434,6 +1568,7 @@ def main():
         "metrics_dataset_global": dataset_metrics_global,
         "metrics_dataset_mapmean": dataset_metrics_mapmean,
         "metrics_dataset_patch_mean": dataset_metrics_patch_mean,
+        "beyond_train_max": beyond,
         "extremes": extremes,
         "notes": {
             "aggregation": {
