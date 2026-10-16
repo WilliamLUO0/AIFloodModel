@@ -1113,7 +1113,7 @@ def add_trainmax_stats(patch_rows, time_rows, idx, vis_root, pred_source, npz_pa
     T, Tc = z["maxdepth"], z["maxdepth_coarse"]
     P0, Pc0 = int(z["patch_fine"]), int(z["patch_coarse"])
     by_key = {(r["scenario"], r["t"]): r for r in time_rows}
-    KEYS = ("n_seen", "n_unseen", "n_above", "n_wet", "n_wet_new", "sse", "se", "excess", "hit",
+    KEYS = ("n_seen", "n_unseen", "n_above", "n_wet", "n_wet_new", "n_wet_all", "sse", "se", "excess", "hit",
             "nc_seen", "nc_unseen", "nc_above", "nc_wet")
     per_t = defaultdict(lambda: dict.fromkeys(KEYS, 0.0))
     for r in patch_rows:
@@ -1141,6 +1141,8 @@ def add_trainmax_stats(patch_rows, time_rows, idx, vis_root, pred_source, npz_pa
         a["n_seen"] += seen.sum(); a["n_unseen"] += (m & ~np.isfinite(t)).sum()
         a["n_above"] += above.sum(); a["n_wet"] += wet.sum()
         a["n_wet_new"] += (wet & (t < DEPTH_EVENT_THRESHOLD)).sum()
+        # all wet AOI cells (seen or not): used only to pick the flood-extent peak hour
+        a["n_wet_all"] += (m & (g >= DEPTH_EVENT_THRESHOLD)).sum()
         if above.any():
             d = pr[above] - g[above]
             a["sse"] += float((d * d).sum()); a["se"] += float(d.sum())
@@ -1173,15 +1175,16 @@ def add_trainmax_stats(patch_rows, time_rows, idx, vis_root, pred_source, npz_pa
     peak = {}
     for sc in sorted({k[0] for k in per_t}):
         ks = [k for k in per_t if k[0] == sc]
-        kp = max(ks, key=lambda k: (per_t[k]["n_wet"], k[1]))
-        peak[sc] = {"t": kp[1], **summarise(per_t[kp])}
+        kp = max(ks, key=lambda k: (per_t[k]["n_wet_all"], k[1]))
+        peak[sc] = {"t": kp[1], "n_wet_all": int(per_t[kp]["n_wet_all"]), **summarise(per_t[kp])}
     return {
         "train_maxdepth_npz": os.path.abspath(npz_path), "margin_m": float(margin),
         "map_split": str(z["split"]) if "split" in z else "", **summarise(tot), "peak_hour": peak,
         "definition": "per-cell training max over the 18 training scenarios x 48 steps (train+val), AOI; target side "
                       "= fine GT vs fine map T, input side = coarse input vs coarse map Tc; above = value > max + margin; "
                       "wet = >= 0.1 m; pooled over all evaluated patches and steps; unseen (NaN) cells excluded; "
-                      "peak_hour = per scenario, the step with the most wet target cells",
+                      "peak_hour = per scenario, the step with the most wet target cells over ALL AOI cells "
+                      "(n_wet_all; the fractions reported for that step use the seen-cell denominators as elsewhere)",
     }
 
 

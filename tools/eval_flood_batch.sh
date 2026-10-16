@@ -61,8 +61,11 @@ FAILED=()
 #   val patches live in the training dataset; read as *_patch_mean, pinned to the
 #   seed-61 val 20% subset via --vis-root.
 VAL_JOBS=(
-  # ===== Paper 2 M1 topography-guidance ablation (600k; val + 100y_42h only) =====
-  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_600k:dataset_ds8_filtered_thr0p1_min5100_full"
+  # ===== Paper 2 M1 topography-guidance ablation (03/05 rows at 600k; row (a) = 01 at 1M, user 2026-10-17;
+  #       val + 100y_42h only) =====
+  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_seed1202:dataset_ds8_filtered_thr0p1_min5100_full"   # M1 row (a) seed replicates (1M; mean +- std)
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_seed2027:dataset_ds8_filtered_thr0p1_min5100_full"
   "03_FMPFTV8_Abl_static_demOnly_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
   "03_FMPFTV8_Abl_static_noSlope_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
   "03_FMPFTV8_Abl_static_noTWI_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
@@ -175,8 +178,11 @@ VAL_JOBS=(
 #   complete maps; read as *_global. Each factor points at ITS OWN test dataset
 #   (testdataset_<tag>_ds<N>), so nothing is inferred.
 TEST_JOBS=(
-  # ===== Paper 2 M1 topography-guidance ablation (600k; val + 100y_42h only) =====
-  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_600k:test100y42h0c:testdataset_100y42h0c"
+  # ===== Paper 2 M1 topography-guidance ablation (03/05 rows at 600k; row (a) = 01 at 1M, user 2026-10-17;
+  #       val + 100y_42h only) =====
+  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_seed1202:test100y42h0c:testdataset_100y42h0c"   # M1 row (a) seed replicates (1M; mean +- std)
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_seed2027:test100y42h0c:testdataset_100y42h0c"
   "03_FMPFTV8_Abl_static_demOnly_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
   "03_FMPFTV8_Abl_static_noSlope_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
   "03_FMPFTV8_Abl_static_noTWI_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
@@ -387,6 +393,18 @@ TRAINMAX_TAGS=(
   # "test1000y42h0c"            # unseen refs: meaningful, BUT these tags are also used by M1/M2/S2/... blocks ->
   # "test100y42h0c"             # listing them makes those evals require the map too (skipped if it is missing)
 )
+# The two UNSEEN references are the x = 1 columns of the S4/S5 plots, so they need the extrapolation fraction too --
+# but only for the 01 1M row (and the model-independent bicubic row), not for every M1/M2/S2 eval on those sets.
+# Entries are "<exp base without EXPSUF>:<tag>"; "baseline:<tag>" selects the bicubic row.
+# UNCOMMENT together with the S4/S5 blocks (needs TRAINMAX_NPZ on this machine). While M1/M2/S2/... are being
+# aggregated, "baseline:test100y42h0c" would otherwise make their shared 100y bicubic baseline require the map
+# and fail without it (Code side, 2026-10-17).
+TRAINMAX_EXP_TAGS=(
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test1000y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test100y42h0c"
+  # "baseline:test1000y42h0c"
+  # "baseline:test100y42h0c"
+)
 
 # coarse-upsample baselines (bicubic upsample of the coarse map). MODEL-INDEPENDENT ->
 # ONE per FACTOR (ds2/4/8/16). These are EXPLICIT lists (NOT derived from the eval jobs
@@ -410,8 +428,7 @@ RUN_BASELINES=1
 FORCE_BASELINES=1   # Paper 2: recompute ds8 val + 100y baselines so they carry PSNR/SSIM
 # VAL baseline -> "selector_exp_base:train_dataset_dir" (selector's val vis pins the subset)
 VAL_BASELINE_JOBS=(
-  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_600k:dataset_ds8_filtered_thr0p1_min5100_full"   # Paper 2 M1 (same val subset)
-  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"   # Paper 2 M1 (selector only pins the val patch set; same set for every s=8 run)
   # "06_FMPFTV8_SRx2_Filter_InbaL1BCE_LW:dataset_ds2_filtered_thr0p1_min25100_full"
   # "06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW:dataset_ds4_filtered_thr0p1_min10100_full"
   # "06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW:dataset_ds16_filtered_thr0p1_min2100_full"
@@ -498,17 +515,16 @@ eval_val () {
 }
 
 # ---- model eval on a TEST set (read *_global; complete maps) ----
-# prints the extra eval_flood.py args for a tag ("" if not a TRAINMAX tag); returns 1 if the map is missing
+# prints the extra eval_flood.py args for a tag ("" if not a TRAINMAX tag); returns 1 if the map is missing.
+# $1 = tag (matched against TRAINMAX_TAGS), $2 = "<exp base>:<tag>" (matched against TRAINMAX_EXP_TAGS; optional)
 tmax_args () {
-  local t
-  for t in "${TRAINMAX_TAGS[@]}"; do
-    if [[ "$t" == "$1" ]]; then
-      if [[ "$VAR" != "h" ]]; then return 0; fi
-      if [[ ! -f "$TRAINMAX_NPZ" ]]; then echo "[error][$1] TRAINMAX_NPZ missing: $TRAINMAX_NPZ" >&2; return 1; fi
-      echo "--train-maxdepth-npz $TRAINMAX_NPZ"; return 0
-    fi
-  done
-  return 0
+  local t hit=0
+  for t in "${TRAINMAX_TAGS[@]}"; do [[ "$t" == "$1" ]] && hit=1; done
+  if [[ -n "${2:-}" ]]; then for t in ${TRAINMAX_EXP_TAGS[@]+"${TRAINMAX_EXP_TAGS[@]}"}; do [[ "$t" == "$2" ]] && hit=1; done; fi
+  if (( hit == 0 )); then return 0; fi
+  if [[ "$VAR" != "h" ]]; then return 0; fi
+  if [[ ! -f "$TRAINMAX_NPZ" ]]; then echo "[error][$1] TRAINMAX_NPZ missing: $TRAINMAX_NPZ" >&2; return 1; fi
+  echo "--train-maxdepth-npz $TRAINMAX_NPZ"; return 0
 }
 
 eval_one_test () {
@@ -518,7 +534,9 @@ eval_one_test () {
   local out="$RESULTS/${exp}_eval_${tag}${SUF}"
   if [[ ! -d "$vis" ]]; then echo "[skip][$tag] no vis-root: $vis"; return; fi
   local TMX
-  if ! TMX=$(tmax_args "$tag"); then echo "[skip][$tag] $exp: train-max map missing"; return; fi
+  if ! TMX=$(tmax_args "$tag" "${exp%"$EXPSUF"}:$tag"); then
+    echo "[skip][$tag] $exp: train-max map missing"; FAILED+=("$exp:$tag:train-max-map-missing"); return
+  fi
   echo "[eval][$tag] $exp  (ds=$dsdir) ${TMX}"
   python tools/eval_flood.py \
     --index-csv "$idx" \
@@ -542,7 +560,7 @@ if [[ "$DRY_RUN" == "1" ]]; then
   echo "--- TEST_JOBS (${#TEST_JOBS[@]})"
   for job in "${TEST_JOBS[@]}"; do
     IFS=":" read -r eb tg ds <<< "$job"; e="${eb}${EXPSUF}"; v="$RESULTS/${e}_eval_${tg}${SUF}/visualization"
-    tm=""; if TMX=$(tmax_args "$tg" 2>/dev/null); then [[ -n "$TMX" ]] && tm=" +train-max"; else tm=" train-max MAP MISSING"; fi
+    tm=""; if TMX=$(tmax_args "$tg" "$eb:$tg" 2>/dev/null); then [[ -n "$TMX" ]] && tm=" +train-max"; else tm=" train-max MAP MISSING"; fi
     printf '  %-60s %-24s %s%s\n' "$e" "$tg" "$([[ -d "$v" ]] && echo 'vis OK' || echo 'vis MISSING')" "$tm"
   done
   if [[ "$RUN_BASELINES" == "1" ]]; then
@@ -607,7 +625,9 @@ if [[ "$RUN_BASELINES" == "1" ]]; then
     idx="$ROOT/$dsdir/$TEST_INDEX"
     if [[ ! -f "$idx" ]]; then echo "[skip][baseline][$tag] no index: $idx"; continue; fi
     _TBASE_DONE[${tag}_${dstag}]=1
-    if ! TMX=$(tmax_args "$tag"); then echo "[skip][baseline][$tag] train-max map missing"; continue; fi
+    if ! TMX=$(tmax_args "$tag" "baseline:$tag"); then
+      echo "[skip][baseline][$tag] train-max map missing"; FAILED+=("baseline:$tag:$dsdir:train-max-map-missing"); continue
+    fi
     echo "[baseline][$tag] dataset=$dsdir ($dstag) ${TMX}"
     python tools/eval_flood.py \
       --index-csv "$idx" \
@@ -621,7 +641,7 @@ if [[ "$RUN_BASELINES" == "1" ]]; then
 fi
 
 if (( ${#FAILED[@]} > 0 )); then
-  echo "==================== ${#FAILED[@]} JOB(S) FAILED (incomplete / unreadable predictions -> rerun inference) ===================="
+  echo "==================== ${#FAILED[@]} JOB(S) FAILED (incomplete / unreadable predictions -> rerun inference; or train-max map missing) ===================="
   for f in "${FAILED[@]}"; do echo "  $f"; done
   exit 1
 fi
