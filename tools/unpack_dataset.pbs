@@ -63,7 +63,7 @@ DATASETS=(
   # testdataset_100y42h0c_xres16_ds4
   # testdataset_100y42h0c_xres16_ds2
   # ===== Paper 2 M2 probe patches + indexes (uncomment after tools/probe_static.sh) =====
-  # probe_static_M2
+  probe_static_M2
   # ===== earlier batches (already done) =====
   # --- training (4) ---
   # dataset_ds8_filtered_thr0p1_min5100_full
