@@ -1,0 +1,67 @@
+#!/bin/bash
+# Sign agreement of the predicted flow velocities, WRR Table 2 and Table S5 (round 2).
+# NIWA / PBS, because Table 2 and Table S5 come from the *_pbs evaluations of run 01
+# (results/01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_{u,v}_eval_<tag>_pbs).
+#
+# INPUTS, the same three that tools/eval_flood.py read for those tables:
+#   1. the per-patch predictions written by basicsr/test_flood_map.py with
+#      options/test/01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_{u,v}_eval_<tag>_pbs.yml
+#      (save_flood_map: true) -> results/<eval>_pbs/visualization/<core>_coarse/*.npy
+#   2. the dataset index (fine_path = simulated fine-grid map, mask_fine_path = AOI):
+#      val  -> dataset_ds8_filtered_thr0p1_min5100_full/index_with_interval_stats_{u,v}_niwa.csv
+#      test -> testdataset_<tag>/index_niwa.csv
+#   3. the eval summary results/<eval>_pbs/eval_<tag>_summary.json (cross-check only:
+#      the run fails if the number of AOI cells or of cells flowing in both maps differs).
+# A set whose visualization folder no longer exists is skipped and listed at the end;
+# rerun its options/test/*_pbs.pbs inference job first, then this job.
+# DRY_RUN=1 only lists which inputs exist.
+#
+# Submit from the repo root:  qsub tools/sign_agreement_batch.pbs
+#PBS -q a100q
+#PBS -l select=1:ncpus=2:ngpus=1:mem=16GB:nodepool=a100p
+#PBS -l walltime=12:00:00
+#PBS -N sign_agreement
+#PBS -S /bin/bash
+#PBS -o /esi/project/niwa04345/luoz/AIFloodModel/logs/
+#PBS -e /esi/project/niwa04345/luoz/AIFloodModel/logs/
+
+set -euo pipefail
+cd /esi/project/niwa04345/luoz/AIFloodModel
+. $(ls /opt/niwa/profile/conda_* | tail -1)
+set +u
+conda activate /esi/project/niwa04345/luoz/envs/pft39
+set -u
+export OMP_NUM_THREADS=2 PYTHONUNBUFFERED=1
+
+DRY_RUN=0
+ROOT=/esi/project/niwa04345/luoz/AIFloodModel
+RESULTS=$ROOT/results
+RUN=01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW
+OUT=$RESULTS/_analysis/sign_agreement
+TAGS=(val test2y42h0c test5y42h0c test10y42h0c test50y42h0c test100y42h0c test1000y42h0c gabrielle)
+mkdir -p "$OUT" logs
+MISSING=()
+
+for VAR in u v; do
+  for TAG in "${TAGS[@]}"; do
+    EVAL=$RESULTS/${RUN}_${VAR}_eval_${TAG}_pbs
+    if [[ "$TAG" == "val" ]]; then
+      IDX=$ROOT/dataset_ds8_filtered_thr0p1_min5100_full/index_with_interval_stats_${VAR}_niwa.csv
+    else
+      IDX=$ROOT/testdataset_${TAG#test}/index_niwa.csv
+    fi
+    SUM=$EVAL/eval_${TAG}_summary.json
+    printf '%-4s %-16s vis %-8s index %-8s summary %s\n' "$VAR" "$TAG" \
+      "$([[ -d $EVAL/visualization ]] && echo OK || echo MISSING)" \
+      "$([[ -f $IDX ]] && echo OK || echo MISSING)" "$([[ -f $SUM ]] && echo OK || echo MISSING)"
+    if [[ ! -d "$EVAL/visualization" || ! -f "$IDX" || ! -f "$SUM" ]]; then MISSING+=("$VAR:$TAG"); continue; fi
+    [[ "$DRY_RUN" == "1" ]] && continue
+    python tools/sign_agreement.py --var "$VAR" --index-csv "$IDX" \
+      --vis-root "$EVAL/visualization" --summary-json "$SUM" \
+      --out-json "$OUT/sign_${VAR}_${TAG}.json" || MISSING+=("$VAR:$TAG:FAILED")
+  done
+done
+echo "==== missing or failed: ${MISSING[*]:-none}"
+for f in "$OUT"/sign_*.json; do
+  [[ -f "$f" ]] && python -c "import json,sys; d=json.load(open(sys.argv[1])); print('%-40s %.3f %%' % (sys.argv[1].split('/')[-1], d['sign_agreement_pct']))" "$f"
+done
