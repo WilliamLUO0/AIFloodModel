@@ -1,0 +1,399 @@
+# Paper 2 S8 -- CBAM-GAN (Shen et al. 2026, J. Hydrol.) under our protocol: their generator + PatchGAN and their full
+# GAN loss (LSGAN + smooth-L1 + TV + empty-region + VGG16); coarse depth only (aux_vars: []); G on the Paper 1 recipe,
+# D Adam (0.5, 0.999) lr tied; 1 M G updates, D every 2nd. = 02_RSwinUNet_SRx8_Filter_InbaL1 except name / model_type / network_g /
+# network_d / aux_vars / path.*_d / train (optim_d, shen_gan_opt replaces pixel_opt, d_every, clip_g/clip_d).
+# general settings
+# 08_ShenCBAMGAN_SRx8_Filter_OwnLoss
+# Baseline comparison for TG-PFT (039). Exp2 NATIVE-LOSS: Song & Guan 2026 (RSwinUNet) masked L1 (MAE), Water Research 298 Eq.2. No ordinal BCE (flood_head present but untrained).
+name: 08_ShenCBAMGAN_SRx8_Filter_OwnLoss
+model_type: FMSRGANModel
+scale: 8
+num_gpu: 4
+manual_seed: 61
+
+# find_unused_parameters needs to be true, otherwise it will affect performance
+find_unused_parameters: true
+
+# dataset and data loader lsettings
+datasets:
+  train:
+    name: FloodMapSR-Train-h
+    type: PairedFloodMapDataset
+    dataroot: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full
+    index_csv: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/index_with_interval_stats_h.csv
+    io_backend:
+      type: disk
+
+    phase: train
+    target_var: h
+    aux_vars: []             # coarse depth only (CBAM-GAN is unguided)
+    scale: 8
+    patch_fine: 512
+    patch_coarse: 64
+    use_hflip: true
+    use_rot: true
+
+    split_cfg:
+      by: scenario
+      val_ratio: 0.2
+      seed: 61
+      split_stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/split_stats_h_asinh.json
+    stats:
+      calculate_if_missing: false
+      use_clip_coarse: false
+      use_clip_static: false
+      norm: zscore
+      transform: asinh
+      h_asinh_q: 90
+    sampler:
+      type: interval_balanced
+      score_mode: percentile_band
+      summary_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/patch_interval_summary_h.json
+      percentile_source: positive
+      low_percentile: p75
+      high_percentile: p99
+      slight_alpha: 4.0
+      severe_alpha: 2.0
+      extreme_alpha: 2.0
+      base_weight: 1.0
+      max_weight: 10.0
+
+    # data loader
+    num_worker_per_gpu: 8
+    batch_size_per_gpu: 4
+    dataset_enlarge_ratio: 1
+    prefetch_mode: cuda
+    pin_memory: True
+    persistent_workers: True
+
+  val_1:
+    name: FloodMapSR-Val-h
+    type: PairedFloodMapDataset
+    dataroot: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full
+    index_csv: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/index_with_interval_stats_h.csv
+    io_backend:
+      type: disk
+
+    phase: val
+    target_var: h
+    aux_vars: []             # coarse depth only (CBAM-GAN is unguided)
+    scale: 8
+    patch_fine: 512
+    patch_coarse: 64
+
+    split_cfg:
+      by: scenario
+      val_ratio: 0.2
+      seed: 61
+      split_stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/split_stats_h_asinh.json
+    stats:
+      calculate_if_missing: false
+      use_clip_coarse: false
+      use_clip_static: false
+      norm: zscore
+      transform: asinh
+      h_asinh_q: 90
+
+# network structures
+network_g:
+  type: ShenCBAMGenerator      # CBAM-GAN generator (Shen et al. 2026), re-implemented; basicsr/archs/shencbamgan_arch.py
+  upscale: 8
+  coarse_in_chans: 1           # coarse depth ONLY, single frame t (unguided by design; S8 ruling) -> datasets aux_vars: []
+  static_in_chans: 7           # static tensor still loaded (AOI mask = last channel, used by the loss), ignored by the net
+  out_chans: 1
+  widths: [32, 64, 128, 256, 512]
+  interp_mode: bicubic         # their x10 pre-interpolation, here x8 inside forward
+  gate_norm: gn                # the 16 gate BatchNorms -> GroupNorm(min(8,C)) (S8 ruling); ResBlock InstanceNorms unchanged
+
+network_d:
+  type: ShenPatchGANDiscriminator   # 70x70 PatchGAN, InstanceNorm(affine), unconditional; training only
+  in_chans: 1
+  base_ch: 32
+  n_layers: 3
+
+# path
+path:
+  pretrain_network_g: ~
+  strict_load_g: true
+  pretrain_network_d: ~
+  strict_load_d: true
+  resume_state: ~
+
+# training settings
+train:
+  ema_decay: 0.999
+  optim_g:
+    type: AdamW
+    lr: !!float 5e-4
+    weight_decay: 0
+    betas: [0.9, 0.99]
+
+  scheduler:
+    type: MultiStepLR
+    milestones: [150000, 300000, 500000, 700000, 900000]
+    gamma: 0.5
+
+  total_iter: 1000000
+  warmup_iter: 40000
+
+  # optimiser of the discriminator (S8 ruling: Adam (0.5, 0.999) as published, lr tied to lr_g; the scheduler and
+  # warm-up above apply to both optimisers)
+  optim_d:
+    type: Adam
+    lr: !!float 5e-4
+    weight_decay: 0
+    betas: [0.5, 0.999]
+  d_every: 2                   # D updated on every 2nd iteration (G:D = 2:1); iteration = one G update
+  clip_g: 1.0                  # max-norm clipping as in the paper (G 1.0 / D 0.5; their code uses 1.0 / 1.0)
+  clip_d: 0.5
+
+  # their generator / discriminator loss (pixel_opt / ordinal_opt must be absent for FMSRGANModel)
+  shen_gan_opt:
+    type: ShenHydrologicalGANLoss
+    stats_json: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/dataset_ds8_filtered_thr0p1_min5100_full/split_stats_h_asinh.json
+    h_asinh_q: 90
+    vgg16_path: /nesi/nobackup/uoa04425/zluo784/Exp1/AIFloodModel/experiments/pretrained_models/vgg16-397923af.pth   # torchvision vgg16 IMAGENET1K_V1; must exist (no silent fallback)
+    w_adv: 1.0
+    w_rec: 50.0
+    w_edge: 0.5
+    w_empty: 0.5               # target outside the AOI = z0 (0 m in our label space)
+    w_perc: 0.1
+    smooth_l1_beta: 0.1
+    label_real: 0.9
+    label_fake: 0.1
+    adv_clamp: 10.0
+    tv_clamp: 1.0
+    d_logit_clamp: 50.0
+    perc_size: 128
+    adaptive_weights: true
+    adaptive_min_steps: 10
+    adaptive_window: 20
+
+# validation settings
+val:
+  val_freq: !!float 4e4
+  save_flood_map: false
+
+  metrics:
+    rmse:
+      type: cal_rmse_pt
+      reduction: mean
+      better: lower
+    rmse_thr:
+      type: cal_rmse_threshold_pt
+      reduction: mean
+      threshold: 0.1
+      better: lower
+    rmse_thr_tol:
+      type: cal_rmse_threshold_tolerant_pt
+      reduction: mean
+      threshold: 0.1
+      abs_tol: 0.02
+      better: lower
+    rmse_all:
+      type: cal_rmse_conditional_pt
+      reduction: none
+      cond_on_target_ge: ~
+      better: lower
+    rmse_nonflood01:
+      type: cal_rmse_conditional_pt
+      reduction: none
+      cond_on_target_ge: 0.0
+      cond_on_target_lt: 0.1
+      better: lower
+    rmse_nonflood01_tol:
+      type: cal_rmse_conditional_pt
+      reduction: none
+      cond_on_target_ge: 0.0
+      cond_on_target_lt: 0.1
+      abs_tol: 0.02
+      better: lower
+    rmse_slight01_05:
+      type: cal_rmse_conditional_pt
+      reduction: none
+      cond_on_target_ge: 0.1
+      cond_on_target_lt: 0.5
+      better: lower
+    rmse_slight01_05_tol:
+      type: cal_rmse_conditional_pt
+      reduction: none
+      cond_on_target_ge: 0.1
+      cond_on_target_lt: 0.5
+      abs_tol: 0.02
+      better: lower
+    rmse_severe05_1:
+      type: cal_rmse_conditional_pt
+      reduction: none
+      cond_on_target_ge: 0.5
+      cond_on_target_lt: 1
+      better: lower
+    rmse_severe05_1_tol:
+      type: cal_rmse_conditional_pt
+      reduction: none
+      cond_on_target_ge: 0.5
+      cond_on_target_lt: 1
+      abs_tol: 0.02
+      better: lower
+    rmse_extreme1:
+      type: cal_rmse_conditional_pt
+      reduction: none
+      cond_on_target_ge: 1
+      cond_on_target_lt: ~
+      better: lower
+    rmse_extreme1_tol:
+      type: cal_rmse_conditional_pt
+      reduction: none
+      cond_on_target_ge: 1
+      cond_on_target_lt: ~
+      abs_tol: 0.02
+      better: lower
+
+    nse:
+      type: cal_nse_pt
+      reduction: mean
+      better: higher
+    nse_safe:
+      type: cal_nse_pt_safe
+      reduction: mean
+      min_var: 1.0e-6
+      abs_tol_per_px: 1.0e-4
+      lower_bound: -5.0
+      better: higher
+    nse_thr01_safe:
+      type: cal_nse_threshold_pt_safe
+      reduction: mean
+      min_var: 1.0e-6
+      abs_tol_per_px: 1.0e-4
+      lower_bound: -5.0
+      threshold: 0.1
+      better: higher
+    nse_thr01_tol_safe:
+      type: cal_nse_threshold_tolerant_pt_safe
+      reduction: mean
+      min_var: 1.0e-6
+      abs_tol_per_px: 1.0e-4
+      lower_bound: -5.0
+      threshold: 0.1
+      abs_tol: 0.02
+      better: higher
+
+    csi_thr01:
+      type: cal_csi_pt
+      threshold: 0.1
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+    csi_thr01_tol:
+      type: cal_csi_tolerant_pt
+      threshold: 0.1
+      reduction: mean
+      abs_tol: 0.02
+      empty_as_nan: true
+      better: higher
+
+    precision_thr01:
+      type: cal_precision_pt
+      threshold: 0.1
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+    precision_thr01_tol:
+      type: cal_precision_tolerant_pt
+      threshold: 0.1
+      reduction: mean
+      empty_as_nan: true
+      abs_tol: 0.02
+      better: higher
+    precision_nonflood01:
+      type: cal_precision_band_pt
+      band_ge: 0.0
+      band_lt: 0.1
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+    precision_slight01_05:
+      type: cal_precision_band_pt
+      band_ge: 0.1
+      band_lt: 0.5
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+    precision_severe05_1:
+      type: cal_precision_band_pt
+      band_ge: 0.5
+      band_lt: 1
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+    precision_extreme1:
+      type: cal_precision_band_pt
+      band_ge: 1
+      band_lt: ~
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+
+    recall_thr01:
+      type: cal_recall_pt
+      threshold: 0.1
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+    recall_thr01_tol:
+      type: cal_recall_tolerant_pt
+      threshold: 0.1
+      reduction: mean
+      empty_as_nan: true
+      abs_tol: 0.02
+      better: higher
+    recall_nonflood01:
+      type: cal_recall_band_pt
+      band_ge: 0.0
+      band_lt: 0.1
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+    recall_slight01_05:
+      type: cal_recall_band_pt
+      band_ge: 0.1
+      band_lt: 0.5
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+    recall_severe05_1:
+      type: cal_recall_band_pt
+      band_ge: 0.5
+      band_lt: 1
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+    recall_extreme1:
+      type: cal_recall_band_pt
+      band_ge: 1
+      band_lt: ~
+      reduction: mean
+      empty_as_nan: true
+      better: higher
+
+    target_prevalence:
+      type: cal_prev_t_pt
+      threshold: 0.1
+      reduction: mean
+    pred_prevalence:
+      type: cal_prev_p_pt
+      threshold: 0.1
+      reduction: mean
+
+# logging settings
+logger:
+  print_freq: 100
+  save_checkpoint_freq: !!float 5e3
+  use_tb_logger: true
+  wandb:
+    project: ~
+    resume_id: ~
+
+# dist training settings
+dist_params:
+  backend: nccl
+  port: 29500
