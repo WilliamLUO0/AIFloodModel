@@ -66,7 +66,12 @@ SAVE_NONOVERLAP_TAGS=("test100y42h0c")
 # 01 1M test_flood_map predictions in $COMPARE_ROOT/${EXP}_eval_<tag>_pbs/visualization; the job FAILS if that
 # dir is missing or max |diff| > 1e-3 m. Restore the archived dir (or re-run
 # options/test/01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_eval_test100y42h0c.pbs) BEFORE submitting test100y42h0c.
-COMPARE_TAGS=("test100y42h0c")
+# 2026-10-23: OFF. The 1 mm max-|diff| criterion is unattainable across batch sizes (TF32 convolutions + batch-
+# dependent cuDNN algorithms, amplified by sinh at deep cells; PFT top-k selection flips at a handful of cells).
+# The validation was done distributionally instead: tools/m4_compare_preds.pbs -> results/_analysis/
+# m4_compare_test100y42h0c.json (AOI median |diff| 6e-6 m, p99.99 8e-3 m, 16 of 2.0e9 cells > 0.1 m; z-space p99.9
+# 5e-3). The M4 table compares overlap vs the M4nonoverlap re-run of THIS script (same batch/path), so unaffected.
+COMPARE_TAGS=()
 COMPARE_ROOT="$BASE/results"
 # =====================================================
 in_list () { local x="$1"; shift; for y in "$@"; do [[ "$x" == "$y" ]] && return 0; done; return 1; }
@@ -77,8 +82,8 @@ for job in "${TESTSETS[@]}"; do
   COMMON=(-opt "$OPT" --orig-index "$BASE/$ds/index_niwa.csv" --results-root "$BASE/results"
           --exp-prefix "${EXP}_M4" --tag "$tag" --suffix _pbs --batch-size 8 --num-workers 4)
   NOV=()
-  if in_list "$tag" "${SAVE_NONOVERLAP_TAGS[@]}"; then NOV+=(--save-nonoverlap); fi
-  if in_list "$tag" "${COMPARE_TAGS[@]}"; then NOV+=(--compare-vis-root "$COMPARE_ROOT/${EXP}_eval_${tag}_pbs/visualization"); fi
+  if in_list "$tag" ${SAVE_NONOVERLAP_TAGS[@]+"${SAVE_NONOVERLAP_TAGS[@]}"}; then NOV+=(--save-nonoverlap); fi
+  if in_list "$tag" ${COMPARE_TAGS[@]+"${COMPARE_TAGS[@]}"}; then NOV+=(--compare-vis-root "$COMPARE_ROOT/${EXP}_eval_${tag}_pbs/visualization"); fi
   echo "==================== $tag : nonoverlap (reference + timing) ===================="
   python tools/infer_overlap.py "${COMMON[@]}" --mode nonoverlap ${NOV[@]+"${NOV[@]}"}
   echo "==================== $tag : overlap (avg / centre / hann) ===================="
