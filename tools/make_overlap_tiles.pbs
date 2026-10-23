@@ -1,0 +1,59 @@
+#!/bin/bash
+# Paper 2 M4 (NIWA, CPU): build the overlapping inference tiles of every factor-8 test set from the EXISTING
+# test-set patches (tools/make_overlap_tiles.py: zero pad 256 with AOI mask 0 -> AOI re-mask -> 512 tiles every 256).
+# Checks A (coarse alignment), B (no AOI slivers: full-domain NeSI report AOI_REPORT + stored tiles),
+# C (pad ring = 0), D (on-grid tiles == original patches) abort the job on failure
+# (B failing -> rebuild that test set unfiltered with make_patches and rerun).
+# BEFORE: run tools/check_aoi_slivers.sh on NeSI and copy its JSON to AOI_REPORT below.
+# shortq max walltime on NIWA is 48h -> 24h is within the cap.
+# Static tiles are shared by all test sets: written once to overlap_tiles/static_p512_pad256_s256 (hash-guarded).
+# Submit: qsub tools/make_overlap_tiles.pbs   (edit the EDIT HERE section first)
+#PBS -q shortq
+#PBS -l select=1:ncpus=2:mem=48GB
+#PBS -l walltime=24:00:00
+#PBS -N make_overlap_tiles
+#PBS -S /bin/bash
+#PBS -o /esi/project/niwa04345/luoz/AIFloodModel/logs/
+#PBS -e /esi/project/niwa04345/luoz/AIFloodModel/logs/
+#PBS -m abe
+#PBS -M williamlzh00@gmail.com
+
+set -euo pipefail
+
+BASE=/esi/project/niwa04345/luoz/AIFloodModel
+mkdir -p "$BASE/logs"
+cd "$BASE"
+
+. $(ls /opt/niwa/profile/conda_* | tail -1)
+set +u
+conda activate /esi/project/niwa04345/luoz/envs/pft39
+set -u
+export PYTHONUNBUFFERED=1
+
+# ===================== EDIT HERE =====================
+# Test sets to process ("eval_tag:test_dataset_dir"); comment a line out to skip it.
+TESTSETS=(
+  # 2026-10-23: Paper 2 evaluates M4 on 100y_42h only (main text); the other sets stay available (uncomment).
+  # "test2y42h0c:testdataset_2y42h0c"
+  # "test5y42h0c:testdataset_5y42h0c"
+  # "test10y42h0c:testdataset_10y42h0c"
+  # "test50y42h0c:testdataset_50y42h0c"
+  "test100y42h0c:testdataset_100y42h0c"
+  # "test1000y42h0c:testdataset_1000y42h0c"
+  # "gabrielle:testdataset_gabrielle"
+)
+# Full-domain AOI-sliver report from NeSI (tools/check_aoi_slivers.sh); must say PASS.
+AOI_REPORT="$BASE/overlap_tiles/aoi_sliver_report_s8_p512.json"
+# =====================================================
+if [[ ! -f "$AOI_REPORT" ]]; then echo "[error] $AOI_REPORT missing (run tools/check_aoi_slivers.sh on NeSI, copy the JSON)" >&2; exit 1; fi
+for job in "${TESTSETS[@]}"; do
+  tag="${job%%:*}"; ds="${job#*:}"
+  echo "==================== $tag ($ds) ===================="
+  python tools/make_overlap_tiles.py \
+    --test-index "$BASE/$ds/index_niwa.csv" \
+    --out-dir    "$BASE/overlap_tiles/$tag" \
+    --static-dir "$BASE/overlap_tiles/static_p512_pad256_s256" \
+    --pad 256 --stride 256 \
+    --aoi-report "$AOI_REPORT"
+done
+echo "[done] overlap tiles"

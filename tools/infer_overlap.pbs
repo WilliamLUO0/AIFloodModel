@@ -1,0 +1,87 @@
+#!/bin/bash
+# Paper 2 M4 (NIWA, GPU): overlapping-tile inference of the main model 01 (1M EMA) on the factor-8 test sets.
+# Per test set:
+#   1. --mode nonoverlap : the model is RE-RUN on the original (non-overlapping) test tiles -> timing reference; for
+#                          SAVE_NONOVERLAP_TAGS also the non-overlap reference row results/01_..._LW_M4nonoverlap_
+#                          eval_<tag>_pbs; for COMPARE_TAGS it must reproduce the existing test_flood_map predictions
+#                          (max |diff| <= 1e-3 m) or the job fails;
+#   2. --mode overlap    : tiles from tools/make_overlap_tiles.pbs, one pass, three merges (avg / centre / hann).
+# Outputs: results/01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M4{avg,centre,hann,nonoverlap}_eval_<tag>_pbs/visualization
+#          results/01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_M4timing_{overlap,nonoverlap}_eval_<tag>_pbs.json
+# Then uncomment the M4 block in tools/eval_flood_batch.pbs.
+# Submit: qsub tools/infer_overlap.pbs   (edit the EDIT HERE section first)
+#PBS -q a100q
+#PBS -l select=1:ncpus=4:ngpus=1:mem=64GB:nodepool=a100p
+#PBS -l walltime=24:00:00
+#PBS -N infer_overlap_M4
+#PBS -S /bin/bash
+#PBS -o /esi/project/niwa04345/luoz/AIFloodModel/logs/
+#PBS -e /esi/project/niwa04345/luoz/AIFloodModel/logs/
+#PBS -m abe
+#PBS -M williamlzh00@gmail.com
+
+set -euo pipefail
+
+BASE=/esi/project/niwa04345/luoz/AIFloodModel
+mkdir -p "$BASE/logs"
+cd "$BASE"
+
+. $(ls /opt/niwa/profile/spack_* | tail -1)
+spack load cuda@12.8.0
+spack load gcc@12.2.0
+
+. $(ls /opt/niwa/profile/conda_* | tail -1)
+set +u
+conda activate /esi/project/niwa04345/luoz/envs/pft39
+set -u
+
+export OMP_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export NUMEXPR_NUM_THREADS=1
+export TORCH_NUM_THREADS=1
+export PYTHONUNBUFFERED=1
+
+nvidia-smi
+
+EXP=01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW
+# ===================== EDIT HERE =====================
+# ONE test set per submission (review C2: all seven in one job exceed 24 h). Leave exactly one line active,
+# qsub, then switch to the next line and qsub again (PBS copies the script at qsub time -> editing after
+# qsub does not affect the queued job). Start with test100y42h0c (it carries the validation, see below).
+TESTSETS=(
+  "test100y42h0c:testdataset_100y42h0c"
+  # "test2y42h0c:testdataset_2y42h0c"
+  # "test5y42h0c:testdataset_5y42h0c"
+  # "test10y42h0c:testdataset_10y42h0c"
+  # "test50y42h0c:testdataset_50y42h0c"
+  # "test1000y42h0c:testdataset_1000y42h0c"
+  # "gabrielle:testdataset_gabrielle"
+)
+# Test sets whose non-overlap re-run is SAVED as the M4nonoverlap row (review C1, disk: ~42 GB per set).
+# For the other sets the non-overlap row of the table is the existing 01 test_flood_map evaluation; the
+# re-run there only measures the timing reference and writes nothing.
+SAVE_NONOVERLAP_TAGS=("test100y42h0c")
+# End-to-end check of the M4 GPU path (review A4): for these tags the non-overlap re-run is compared with the
+# 01 1M test_flood_map predictions in $COMPARE_ROOT/${EXP}_eval_<tag>_pbs/visualization; the job FAILS if that
+# dir is missing or max |diff| > 1e-3 m. Restore the archived dir (or re-run
+# options/test/01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_eval_test100y42h0c.pbs) BEFORE submitting test100y42h0c.
+COMPARE_TAGS=("test100y42h0c")
+COMPARE_ROOT="$BASE/results"
+# =====================================================
+in_list () { local x="$1"; shift; for y in "$@"; do [[ "$x" == "$y" ]] && return 0; done; return 1; }
+if [[ ${#TESTSETS[@]} -ne 1 ]]; then echo "[error] exactly one active TESTSETS line per job (got ${#TESTSETS[@]})" >&2; exit 1; fi
+for job in "${TESTSETS[@]}"; do
+  tag="${job%%:*}"; ds="${job#*:}"
+  OPT="options/test/${EXP}_eval_${tag}_pbs.yml"
+  COMMON=(-opt "$OPT" --orig-index "$BASE/$ds/index_niwa.csv" --results-root "$BASE/results"
+          --exp-prefix "${EXP}_M4" --tag "$tag" --suffix _pbs --batch-size 8 --num-workers 4)
+  NOV=()
+  if in_list "$tag" "${SAVE_NONOVERLAP_TAGS[@]}"; then NOV+=(--save-nonoverlap); fi
+  if in_list "$tag" "${COMPARE_TAGS[@]}"; then NOV+=(--compare-vis-root "$COMPARE_ROOT/${EXP}_eval_${tag}_pbs/visualization"); fi
+  echo "==================== $tag : nonoverlap (reference + timing) ===================="
+  python tools/infer_overlap.py "${COMMON[@]}" --mode nonoverlap ${NOV[@]+"${NOV[@]}"}
+  echo "==================== $tag : overlap (avg / centre / hann) ===================="
+  python tools/infer_overlap.py "${COMMON[@]}" --mode overlap --tiles-dir "$BASE/overlap_tiles/$tag"
+done
+echo "[done] M4 inference"
