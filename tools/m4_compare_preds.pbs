@@ -1,0 +1,34 @@
+#!/bin/bash
+# Paper 2 M4 diagnostic (CPU): distribution of the difference between the M4 non-overlap re-run (infer_overlap.py,
+# batch 8) and the existing 01 test_flood_map predictions (batch 1) -- tools/m4_compare_preds.py.
+# Submit from the repo root:  qsub tools/m4_compare_preds.pbs
+#PBS -q shortq
+#PBS -l select=1:ncpus=2:mem=16GB
+#PBS -l walltime=12:00:00
+#PBS -N m4_compare_preds
+#PBS -S /bin/bash
+#PBS -o /esi/project/niwa04345/luoz/AIFloodModel/logs/
+#PBS -e /esi/project/niwa04345/luoz/AIFloodModel/logs/
+
+set -euo pipefail
+BASE=/esi/project/niwa04345/luoz/AIFloodModel
+mkdir -p "$BASE/logs"
+cd "$BASE"
+. $(ls /opt/niwa/profile/conda_* | tail -1)
+set +u
+conda activate /esi/project/niwa04345/luoz/envs/pft39
+set -u
+export PYTHONUNBUFFERED=1
+
+# ===================== EDIT HERE =====================
+TAG=test100y42h0c
+TESTDS=testdataset_100y42h0c
+EXP=01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW
+REF_VIS="$BASE/results/${EXP}_eval_${TAG}_pbs/visualization"            # existing test_flood_map (1M)
+NEW_VIS="$BASE/results/${EXP}_M4nonoverlap_eval_${TAG}_pbs/visualization"  # infer_overlap re-run
+STATS="$BASE/dataset_ds8_filtered_thr0p1_min5100_full/split_stats_h_asinh.json"
+OUT="$BASE/results/_analysis/m4_compare_${TAG}.json"
+# =====================================================
+mkdir -p "$(dirname "$OUT")"
+python tools/m4_compare_preds.py --index-csv "$BASE/$TESTDS/index_niwa.csv" --ref-vis "$REF_VIS" \
+  --new-vis "$NEW_VIS" --stats-json "$STATS" --out-json "$OUT"
