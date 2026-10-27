@@ -1,4 +1,4 @@
-# Paper 2 S8 -- Flood-DM evaluation 'val': EMA denoiser at 1000k, one seeded sample per patch, 4 GPUs.
+# Paper 2 S8 -- Flood-DM evaluation 'val': EMA denoiser at 400k (2026-10-28: 400k is the S8 Flood-DM checkpoint), one seeded sample per patch, 4 GPUs.
 # = 01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_eval_val except name / model_type / network_g / diffusion / num_gpu / no logit metrics.
 # general settings
 name: 08_FloodDM_SRx8_Filter_EpsL1_eval_val_pbs
@@ -68,13 +68,13 @@ diffusion:
   amp_dtype: bfloat16
   amp_train: true
   amp_sample: true
-  t_start: ~                   # SET to the T_s chosen by the valsub256 sweep (their < 1 % rule); ~ refuses to run
+  t_start: 50                  # valsub256 sweep @400k (2026-10-28): rmse 0.1983 / 0.1976 / 0.1988 / 2.672 at T_s 50 / 150 / 500 / 1000 -> smallest within 1 % MSE
   n_samples: 1                 # headline = ONE seeded sample per patch (mean of 8 = SI row: n_samples 8)
   seed_base: 61                # per-patch generator seed = f(seed_base, scenario, t, row, col, var)
   resume_vis_dir: ~            # after a walltime kill: the ARCHIVED run's .../visualization (BasicSR renames the old results dir to *_archived_<time>); finished maps are moved over, the rest is sampled
 # path
 path:
-  pretrain_network_g: /esi/project/niwa04345/luoz/AIFloodModel/experiments/08_FloodDM_SRx8_Filter_EpsL1_pbs/models/net_g_1000000.pth
+  pretrain_network_g: /esi/project/niwa04345/luoz/AIFloodModel/experiments/08_FloodDM_SRx8_Filter_EpsL1_pbs/models/net_g_400000.pth
   strict_load_g: yes
   # load the EMA weights into net_g (test mode never builds net_g_ema, and
   # resume_state is ignored outside training) so eval matches the EMA-based
