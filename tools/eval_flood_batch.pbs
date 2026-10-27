@@ -187,7 +187,7 @@ VAL_JOBS=(
   "08_FLOSR_SRx8_Filter_InbaL1:dataset_ds8_filtered_thr0p1_min5100_full"
   "08_SongDenseUNet_SRx8_Filter_InbaL1:dataset_ds8_filtered_thr0p1_min5100_full"
   "08_ShenCBAMGAN_SRx8_Filter_OwnLoss:dataset_ds8_filtered_thr0p1_min5100_full"
-  # "08_FloodDM_SRx8_Filter_EpsL1:dataset_ds8_filtered_thr0p1_min5100_full"
+  "08_FloodDM_SRx8_Filter_EpsL1:dataset_ds8_filtered_thr0p1_min5100_full"
 )
 
 # TEST jobs -> "exp_base:eval_tag:test_dataset_dir"  (complete maps; read *_global).
@@ -370,19 +370,19 @@ TEST_JOBS=(
   # ===== Paper 2 S4 beyond-design: 01 @1M on 1000y_48h x1.25 / x1.5 / x2 (+ x3 optional) (UNCOMMENT after their
   #       test_flood_map jobs). x1 column = 1000y_48h full maps labelled "seen scenario" + 1000y_42h as the
   #       unseen same-magnitude reference (its 01 1M predictions must be in results/: restore or re-run). =====
-  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test1000y48h0cx1p25:testdataset_1000y48h0cx1p25"
-  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test1000y48h0cx1p5:testdataset_1000y48h0cx1p5"
-  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test1000y48h0cx2p0:testdataset_1000y48h0cx2p0"
-  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test1000y48h0cx3p0:testdataset_1000y48h0cx3p0"   # OPTIONAL stress test
-  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test1000y48h0c:testdataset_1000y48h0c"           # x1, seen scenario
-  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test1000y42h0c:testdataset_1000y42h0c"           # x1, unseen reference
+  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test1000y48h0cx1p25:testdataset_1000y48h0cx1p25"
+  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test1000y48h0cx1p5:testdataset_1000y48h0cx1p5"
+  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test1000y48h0cx2p0:testdataset_1000y48h0cx2p0"
+  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test1000y48h0cx3p0:testdataset_1000y48h0cx3p0"   # OPTIONAL stress test
+  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test1000y48h0c:testdataset_1000y48h0c"           # x1, seen scenario
+  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test1000y42h0c:testdataset_1000y42h0c"           # x1, unseen reference
   # ===== Paper 2 S5 unseen rainfall pattern: 01 @1M on 100y_48h double peak 1:1 / 2:1 (UNCOMMENT after their
   #       test_flood_map jobs). Single-peak column = 100y_48h full maps labelled "seen scenario" + 100y_42h as the
   #       unseen single-peak reference (also in the S2 / M1 blocks -- uncomment it only once). =====
-  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test100y48h0cdp11:testdataset_100y48h0cdp11"
-  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test100y48h0cdp21:testdataset_100y48h0cdp21"
-  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test100y48h0c:testdataset_100y48h0c"             # single peak, seen scenario
-  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"             # single peak, unseen ref
+  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test100y48h0cdp11:testdataset_100y48h0cdp11"
+  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test100y48h0cdp21:testdataset_100y48h0cdp21"
+  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test100y48h0c:testdataset_100y48h0c"             # single peak, seen scenario
+  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"             # single peak, unseen ref
   # ===== Paper 2 S8 released models under one protocol + TG-SAT (1M EMA; val + 100y_42h). UNCOMMENT each line after
   #       its test_flood_map jobs are done. Flood-DM: run its valsub256 T_s sweep first and write the chosen t_start into
   #       its eval ymls (they refuse to run with t_start: ~). Paper 1 rows (TG-PFT, PFT-V7, UNet, SwinFlood, RSwinUNet)
@@ -393,7 +393,7 @@ TEST_JOBS=(
   "08_FLOSR_SRx8_Filter_InbaL1:test100y42h0c:testdataset_100y42h0c"
   "08_SongDenseUNet_SRx8_Filter_InbaL1:test100y42h0c:testdataset_100y42h0c"
   "08_ShenCBAMGAN_SRx8_Filter_OwnLoss:test100y42h0c:testdataset_100y42h0c"
-  # "08_FloodDM_SRx8_Filter_EpsL1:test100y42h0c:testdataset_100y42h0c"
+  "08_FloodDM_SRx8_Filter_EpsL1:test100y42h0c:testdataset_100y42h0c"
   # "08_FloodDM_SRx8_Filter_EpsL1:test100y42h0c_400k:testdataset_100y42h0c"   # Flood-DM at their 400k budget (SI)
 )
 
@@ -421,10 +421,10 @@ TRAINMAX_TAGS=(
 # aggregated, "baseline:test100y42h0c" would otherwise make their shared 100y bicubic baseline require the map
 # and fail without it (Code side, 2026-10-17).
 TRAINMAX_EXP_TAGS=(
-  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test1000y42h0c"
-  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test100y42h0c"
-  # "baseline:test1000y42h0c"
-  # "baseline:test100y42h0c"
+  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test1000y42h0c"
+  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test100y42h0c"
+  "baseline:test1000y42h0c"
+  "baseline:test100y42h0c"
 )
 
 # coarse-upsample baselines (bicubic upsample of the coarse map). MODEL-INDEPENDENT
@@ -441,6 +441,10 @@ TRAINMAX_EXP_TAGS=(
 # Recommended before every submission: there are many commented M1..S5 blocks -- open ONE block at a time,
 # `bash -n` this file, then run it once with DRY_RUN=1 (e.g. `bash tools/eval_flood_batch.pbs` on the login node),
 # set DRY_RUN=0 and qsub.
+# PART (2026-10-28): split one big aggregation into two PBS jobs that run in parallel (outputs never overlap).
+#   all  = everything active below;  val = VAL_JOBS + VAL_BASELINE_JOBS only;  test = TEST_JOBS + TEST_BASELINE_JOBS only.
+#   Set PART=val -> qsub, then PART=test -> qsub again (PBS copies the script at qsub time).
+PART=all
 DRY_RUN=0
 RUN_BASELINES=1
 FORCE_BASELINES=1   # Paper 2: recompute ds8 val + 100y baselines so they carry PSNR/SSIM
@@ -464,9 +468,9 @@ TEST_BASELINE_JOBS=(
   # "test5y42h0c:testdataset_5y42h0c"
   # "test10y42h0c:testdataset_10y42h0c"
   # "test50y42h0c:testdataset_50y42h0c"
-  # "test100y42h0c:testdataset_100y42h0c"   # Paper 2 M1
+  "test100y42h0c:testdataset_100y42h0c"   # Paper 2 M1
   # "test100y42h0c:testdataset_100y42h0c"
-  # "test1000y42h0c:testdataset_1000y42h0c"
+  "test1000y42h0c:testdataset_1000y42h0c"
   # "gabrielle:testdataset_gabrielle"
   # "test100y42h0c:testdataset_100y42h0c_ds2"
   # "gabrielle:testdataset_gabrielle_ds2"
@@ -486,15 +490,15 @@ TEST_BASELINE_JOBS=(
   "test100y42h0c_xres16:testdataset_100y42h0c_xres16_ds4"
   # "test100y42h0c_xres16:testdataset_100y42h0c_xres16_ds2"
   # --- Paper 2 S4 (uncomment with the S4 block; bicubic of the dx64 map onto the 8 m grid) ---
-  # "test1000y48h0cx1p25:testdataset_1000y48h0cx1p25"
-  # "test1000y48h0cx1p5:testdataset_1000y48h0cx1p5"
-  # "test1000y48h0cx2p0:testdataset_1000y48h0cx2p0"
-  # "test1000y48h0cx3p0:testdataset_1000y48h0cx3p0"     # OPTIONAL
-  # "test1000y48h0c:testdataset_1000y48h0c"             # x1, seen scenario
+  "test1000y48h0cx1p25:testdataset_1000y48h0cx1p25"
+  "test1000y48h0cx1p5:testdataset_1000y48h0cx1p5"
+  "test1000y48h0cx2p0:testdataset_1000y48h0cx2p0"
+  "test1000y48h0cx3p0:testdataset_1000y48h0cx3p0"     # OPTIONAL
+  "test1000y48h0c:testdataset_1000y48h0c"             # x1, seen scenario
   # --- Paper 2 S5 (uncomment with the S5 block) ---
-  # "test100y48h0cdp11:testdataset_100y48h0cdp11"
-  # "test100y48h0cdp21:testdataset_100y48h0cdp21"
-  # "test100y48h0c:testdataset_100y48h0c"               # single peak, seen scenario
+  "test100y48h0cdp11:testdataset_100y48h0cdp11"
+  "test100y48h0cdp21:testdataset_100y48h0cdp21"
+  "test100y48h0c:testdataset_100y48h0c"               # single peak, seen scenario
 )
 # =======================================================================
 
@@ -567,24 +571,28 @@ eval_one_test () {
     || { echo "[FAILED][$tag] $exp"; FAILED+=("$exp:$tag"); return 0; }
 }
 
+case "$PART" in all|val|test) ;; *) echo "[error] PART must be all / val / test (got $PART)" >&2; exit 1 ;; esac
+if [[ "$PART" == "test" ]]; then VAL_JOBS=(); VAL_BASELINE_JOBS=(); fi
+if [[ "$PART" == "val" ]]; then TEST_JOBS=(); TEST_BASELINE_JOBS=(); fi
+
 if [[ "$DRY_RUN" == "1" ]]; then
   echo "==================== DRY RUN (nothing is evaluated) ===================="
-  echo "VAR=$VAR  RUN_BASELINES=$RUN_BASELINES  FORCE_BASELINES=$FORCE_BASELINES"
+  echo "VAR=$VAR  PART=$PART  RUN_BASELINES=$RUN_BASELINES  FORCE_BASELINES=$FORCE_BASELINES"
   echo "--- VAL_JOBS (${#VAL_JOBS[@]})"
-  for job in "${VAL_JOBS[@]}"; do
+  for job in ${VAL_JOBS[@]+"${VAL_JOBS[@]}"}; do
     e="${job%%:*}${EXPSUF}"; v="$RESULTS/${e}_eval_val${SUF}/visualization"
     printf '  %-70s %s\n' "$e" "$([[ -d "$v" ]] && echo 'vis OK' || echo 'vis MISSING')"
   done
   echo "--- TEST_JOBS (${#TEST_JOBS[@]})"
-  for job in "${TEST_JOBS[@]}"; do
+  for job in ${TEST_JOBS[@]+"${TEST_JOBS[@]}"}; do
     IFS=":" read -r eb tg ds <<< "$job"; e="${eb}${EXPSUF}"; v="$RESULTS/${e}_eval_${tg}${SUF}/visualization"
     tm=""; if TMX=$(tmax_args "$tg" "$eb:$tg" 2>/dev/null); then [[ -n "$TMX" ]] && tm=" +train-max"; else tm=" train-max MAP MISSING"; fi
     printf '  %-60s %-24s %s%s\n' "$e" "$tg" "$([[ -d "$v" ]] && echo 'vis OK' || echo 'vis MISSING')" "$tm"
   done
   if [[ "$RUN_BASELINES" == "1" ]]; then
-    echo "--- VAL_BASELINE_JOBS (${#VAL_BASELINE_JOBS[@]})"; for job in "${VAL_BASELINE_JOBS[@]}"; do echo "  $job"; done
+    echo "--- VAL_BASELINE_JOBS (${#VAL_BASELINE_JOBS[@]})"; for job in ${VAL_BASELINE_JOBS[@]+"${VAL_BASELINE_JOBS[@]}"}; do echo "  $job"; done
     echo "--- TEST_BASELINE_JOBS (${#TEST_BASELINE_JOBS[@]})"
-    for job in "${TEST_BASELINE_JOBS[@]}"; do
+    for job in ${TEST_BASELINE_JOBS[@]+"${TEST_BASELINE_JOBS[@]}"}; do
       IFS=":" read -r tg ds <<< "$job"
       printf '  %-24s %-40s %s\n' "$tg" "$ds" "$([[ -f "$ROOT/$ds/$TEST_INDEX" ]] && echo 'index OK' || echo 'index MISSING')"
     done
@@ -592,11 +600,11 @@ if [[ "$DRY_RUN" == "1" ]]; then
   exit 0
 fi
 
-echo "==================== MODEL EVALS ===================="
-for job in "${VAL_JOBS[@]}"; do
+echo "==================== MODEL EVALS (PART=$PART) ===================="
+for job in ${VAL_JOBS[@]+"${VAL_JOBS[@]}"}; do
   eval_val "${job%%:*}${EXPSUF}" "${job#*:}"
 done
-for job in "${TEST_JOBS[@]}"; do
+for job in ${TEST_JOBS[@]+"${TEST_JOBS[@]}"}; do
   IFS=":" read -r ebase tag dsdir <<< "$job"
   eval_one_test "${ebase}${EXPSUF}" "$tag" "$dsdir"
 done
@@ -606,7 +614,7 @@ if [[ "$RUN_BASELINES" == "1" ]]; then
   mkdir -p "$BOUT"
   echo "==================== VAL BASELINES ===================="
   declare -A _VBASE_DONE=()
-  for job in "${VAL_BASELINE_JOBS[@]}"; do
+  for job in ${VAL_BASELINE_JOBS[@]+"${VAL_BASELINE_JOBS[@]}"}; do
     ebase="${job%%:*}"; ds="${job#*:}"
     dstag=$(factor_tag "$ds")
     if [[ -n "${_VBASE_DONE[$dstag]:-}" ]]; then continue; fi   # dedup by OUTPUT name (factor)
@@ -632,7 +640,7 @@ if [[ "$RUN_BASELINES" == "1" ]]; then
 
   echo "==================== TEST BASELINES ===================="
   declare -A _TBASE_DONE=()
-  for job in "${TEST_BASELINE_JOBS[@]}"; do
+  for job in ${TEST_BASELINE_JOBS[@]+"${TEST_BASELINE_JOBS[@]}"}; do
     IFS=":" read -r tag dsdir <<< "$job"
     dstag=$(factor_tag "$dsdir")
     if [[ -n "${_TBASE_DONE[${tag}_${dstag}]:-}" ]]; then continue; fi   # dedup by OUTPUT name
