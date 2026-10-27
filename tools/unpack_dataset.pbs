@@ -49,18 +49,18 @@ DATASETS=(
   # testdataset_100y42h0c_ds4_pf512
   # testdataset_100y42h0c_ds16_pf512
   # ===== Paper 2 S5 unseen-pattern test sets (uncomment after make_patches_testset.sh S5 lines) =====
-  # testdataset_100y48h0cdp11
-  # testdataset_100y48h0cdp21
-  # testdataset_100y48h0c           # S5 single-peak column (seen scenario)
+  testdataset_100y48h0cdp11
+  testdataset_100y48h0cdp21
+  testdataset_100y48h0c           # S5 single-peak column (seen scenario)
   # ===== Paper 2 S4 beyond-design test sets (uncomment after make_patches_testset.sh S4 lines) =====
-  # testdataset_1000y48h0cx1p25
-  # testdataset_1000y48h0cx1p5
-  # testdataset_1000y48h0cx2p0
-  # testdataset_1000y48h0cx3p0      # OPTIONAL stress test
-  # testdataset_1000y48h0c          # S4 x1 column (seen scenario)
-  # ===== Paper 2 S3(a) cross-resolution test, 16 m targets (uncomment after tools/make_testset_xres16.sh) =====
-  testdataset_100y42h0c_xres16_ds8
-  testdataset_100y42h0c_xres16_ds4
+  testdataset_1000y48h0cx1p25
+  testdataset_1000y48h0cx1p5
+  testdataset_1000y48h0cx2p0
+  testdataset_1000y48h0cx3p0      # OPTIONAL stress test
+  testdataset_1000y48h0c          # S4 x1 column (seen scenario)
+  # ===== Paper 2 S3(a) cross-resolution test, 16 m targets -- DONE 2026-10-27 =====
+  # testdataset_100y42h0c_xres16_ds8     # DONE 2026-10-27 (unpacked on both NIWA HPCs)
+  # testdataset_100y42h0c_xres16_ds4     # DONE 2026-10-27 (unpacked on both NIWA HPCs)
   # testdataset_100y42h0c_xres16_ds2     # Row B s = 2 dropped (2026-10-18)
   # ===== Paper 2 M2 probe patches + indexes (uncomment after tools/probe_static.sh) =====
   # probe_static_M2     # DONE 2026-10-15
@@ -75,8 +75,8 @@ DATASETS=(
   # testdataset_5y42h0c
   # testdataset_10y42h0c
   # testdataset_50y42h0c
-  # testdataset_100y42h0c
-  # testdataset_1000y42h0c
+  testdataset_100y42h0c           # 2026-10-27: S2/S8 test + S4/S5 unseen refs (training HPC)
+  testdataset_1000y42h0c          # 2026-10-27: S2/S8 test + S4/S5 unseen refs (training HPC)
   # --- test: downscaling-factor ablation (100y only) ---
   # testdataset_100y42h0c_ds2
   # testdataset_100y42h0c_ds4
