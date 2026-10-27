@@ -10,9 +10,9 @@
 # NOTE: eval_flood.py aggregation is CPU-only (torch on CPU only for the
 # coarse_upsample baseline). We request 1 GPU on a100q merely to guarantee a node;
 # switch to a CPU queue here if NIWA provides one.
-#PBS -q a100q
-#PBS -l select=1:ncpus=4:ngpus=1:mem=32GB:nodepool=a100p
-#PBS -l walltime=24:00:00
+#PBS -q shortq
+#PBS -l select=1:ncpus=4:mem=48GB
+#PBS -l walltime=48:00:00
 #PBS -N eval_flood_batch_pbs
 #PBS -S /bin/bash
 #PBS -o /esi/project/niwa04345/luoz/AIFloodModel/logs/
@@ -72,28 +72,32 @@ FAILED=()
 VAL_JOBS=(
   # ===== Paper 2 M1 topography-guidance ablation (03/05 rows at 600k; row (a) = 01 at 1M, user 2026-10-17;
   #       val + 100y_42h only) =====
-  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
   # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_seed1202:dataset_ds8_filtered_thr0p1_min5100_full"   # M1 row (a) seed replicates (1M; mean +- std)
   # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_seed2027:dataset_ds8_filtered_thr0p1_min5100_full"
-  "03_FMPFTV8_Abl_static_demOnly_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  "03_FMPFTV8_Abl_static_noSlope_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  "03_FMPFTV8_Abl_static_noTWI_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  "03_FMPFTV8_Abl_static_noAspect_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  "03_FMPFTV8_Abl_static_noRough_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  "03_FMPFTV8_Abl_static_noDEM_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  "03_FMPFTV8_Abl_coarse_demOnly_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  "03_FMPFTV8_Abl_coarse_zsOnly_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  "05_FMPFTV8Abl_skipFinest_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  "05_FMPFTV8Abl_noUshape_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  "05_FMPFTV8Abl_noUshapeDFuse_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  "05_FMPFTV8Abl_convBottleneck_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_seed1983:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_seed7714:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "03_FMPFTV8_Abl_static_demOnly_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "03_FMPFTV8_Abl_static_noSlope_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "03_FMPFTV8_Abl_static_noTWI_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "03_FMPFTV8_Abl_static_noAspect_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "03_FMPFTV8_Abl_static_noRough_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "03_FMPFTV8_Abl_static_noDEM_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "03_FMPFTV8_Abl_coarse_demOnly_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "03_FMPFTV8_Abl_coarse_zsOnly_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "05_FMPFTV8Abl_skipFinest_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "05_FMPFTV8Abl_noUshape_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "05_FMPFTV8Abl_noUshapeDFuse_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "05_FMPFTV8Abl_convBottleneck_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
   # ===== Paper 1 jobs (already aggregated) -- kept for provenance, commented =====
   # --- 01 main model (h; u/v via VAR knob) ---
   # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
   # --- 01 seed replicates (h-only; comment out for VAR=u/v) ---
   # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_seed1202:dataset_ds8_filtered_thr0p1_min5100_full"
   # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_seed2027:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_seed1983:dataset_ds8_filtered_thr0p1_min5100_full"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_seed7714:dataset_ds8_filtered_thr0p1_min5100_full"
   # --- 02 baselines (matched-loss + native-loss variants) ---
   # "02_FMPFTV7_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
   # "02_HeUNet_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
@@ -132,12 +136,12 @@ VAL_JOBS=(
   #       (no new inference) to add PSNR/SSIM + the S16 edge/centre columns. =====
   # --- Row B (fine 512) ---
   # "06_FMPFTV8_SRx2_PF512_Filter_InbaL1BCE_LW:dataset_ds2_pf512_filtered_thr0p1_min25100_full"
-  # "06_FMPFTV8_SRx4_PF512_Filter_InbaL1BCE_LW:dataset_ds4_pf512_filtered_thr0p1_min10100_full"
-  # "06_FMPFTV8_SRx16_PF512_Filter_InbaL1BCE_LW:dataset_ds16_pf512_filtered_thr0p1_min2100_full"
+  "06_FMPFTV8_SRx4_PF512_Filter_InbaL1BCE_LW:dataset_ds4_pf512_filtered_thr0p1_min10100_full"
+  "06_FMPFTV8_SRx16_PF512_Filter_InbaL1BCE_LW:dataset_ds16_pf512_filtered_thr0p1_min2100_full"
   # --- Row A (coarse 64) + s = 8 (shared by both rows) ---
-  # "06_FMPFTV8_SRx2_Filter_InbaL1BCE_LW:dataset_ds2_filtered_thr0p1_min25100_full"
-  # "06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW:dataset_ds4_filtered_thr0p1_min10100_full"
-  # "06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW:dataset_ds16_filtered_thr0p1_min2100_full"
+  "06_FMPFTV8_SRx2_Filter_InbaL1BCE_LW:dataset_ds2_filtered_thr0p1_min25100_full"
+  "06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW:dataset_ds4_filtered_thr0p1_min10100_full"
+  "06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW:dataset_ds16_filtered_thr0p1_min2100_full"
   # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
   # ===== Paper 2 M2 static-input probes on 01 @1M (val + 100y_42h). UNCOMMENT after the M2probe test_flood_map
   #       jobs are done. Reference row = the existing 01 1M eval (no extra job). No new baselines needed. =====
@@ -163,26 +167,26 @@ VAL_JOBS=(
   # ===== Paper 2 S1 guidance x factor: row (j) noUshape at 1M (val + 100y). UNCOMMENT after its test_flood_map jobs.
   #       The matching FULL models (Row B + 01 1M) and the baselines are in the M3 block -> uncomment that too. =====
   # "06_FMPFTV8Abl_noUshape_SRx2_PF512_Filter_InbaL1BCE_LW:dataset_ds2_pf512_filtered_thr0p1_min25100_full"
-  # "06_FMPFTV8Abl_noUshape_SRx4_PF512_Filter_InbaL1BCE_LW:dataset_ds4_pf512_filtered_thr0p1_min10100_full"
-  # "06_FMPFTV8Abl_noUshape_SRx16_PF512_Filter_InbaL1BCE_LW:dataset_ds16_pf512_filtered_thr0p1_min2100_full"
+  "06_FMPFTV8Abl_noUshape_SRx4_PF512_Filter_InbaL1BCE_LW:dataset_ds4_pf512_filtered_thr0p1_min10100_full"
+  "06_FMPFTV8Abl_noUshape_SRx16_PF512_Filter_InbaL1BCE_LW:dataset_ds16_pf512_filtered_thr0p1_min2100_full"
   # "05_FMPFTV8Abl_noUshape_SRx8_Filter_InbaL1BCE_LW_1M:dataset_ds8_filtered_thr0p1_min5100_full"
   # ===== Paper 2 S2 Delta-t coarse input at 1M (val + 100y; gabrielle optional). UNCOMMENT after its test_flood_map jobs.
   #       Single-frame reference = 01 at 1M (its val/100y predictions must be in results/ - restore from archive). =====
-  # "07_FMPFTV8_SRx8_dtc1_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  # "07_FMPFTV8_SRx8_dtc3_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  # "07_FMPFTV8_SRx8_dts1_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  # "07_FMPFTV8_SRx8_dts3_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  "07_FMPFTV8_SRx8_dtc1_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  "07_FMPFTV8_SRx8_dtc3_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  "07_FMPFTV8_SRx8_dts1_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  "07_FMPFTV8_SRx8_dts3_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
   # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"   # single-frame reference
   # ===== Paper 2 S8 released models under one protocol + TG-SAT (1M EMA; val + 100y_42h). UNCOMMENT each line after
   #       its test_flood_map jobs are done. Flood-DM: run its valsub256 T_s sweep first and write the chosen t_start into
   #       its eval ymls (they refuse to run with t_start: ~). Paper 1 rows (TG-PFT, PFT-V7, UNet, SwinFlood, RSwinUNet)
   #       are NOT re-evaluated here: their numbers are final.
   #       Baselines: ds8 val + test100y42h0c, already computed for M1 (no extra baseline line needed). =====
-  # "08_FMSATV8_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  # "08_FMSATV7_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  # "08_FLOSR_SRx8_Filter_InbaL1:dataset_ds8_filtered_thr0p1_min5100_full"
-  # "08_SongDenseUNet_SRx8_Filter_InbaL1:dataset_ds8_filtered_thr0p1_min5100_full"
-  # "08_ShenCBAMGAN_SRx8_Filter_OwnLoss:dataset_ds8_filtered_thr0p1_min5100_full"
+  "08_FMSATV8_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  "08_FMSATV7_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  "08_FLOSR_SRx8_Filter_InbaL1:dataset_ds8_filtered_thr0p1_min5100_full"
+  "08_SongDenseUNet_SRx8_Filter_InbaL1:dataset_ds8_filtered_thr0p1_min5100_full"
+  "08_ShenCBAMGAN_SRx8_Filter_OwnLoss:dataset_ds8_filtered_thr0p1_min5100_full"
   # "08_FloodDM_SRx8_Filter_EpsL1:dataset_ds8_filtered_thr0p1_min5100_full"
 )
 
@@ -190,22 +194,24 @@ VAL_JOBS=(
 TEST_JOBS=(
   # ===== Paper 2 M1 topography-guidance ablation (03/05 rows at 600k; row (a) = 01 at 1M, user 2026-10-17;
   #       val + 100y_42h only) =====
-  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
   # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_seed1202:test100y42h0c:testdataset_100y42h0c"   # M1 row (a) seed replicates (1M; mean +- std)
   # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_seed2027:test100y42h0c:testdataset_100y42h0c"
-  "03_FMPFTV8_Abl_static_demOnly_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "03_FMPFTV8_Abl_static_noSlope_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "03_FMPFTV8_Abl_static_noTWI_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "03_FMPFTV8_Abl_static_noAspect_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "03_FMPFTV8_Abl_static_noRough_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "03_FMPFTV8_Abl_static_noDEM_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "03_FMPFTV8_Abl_coarse_demOnly_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "03_FMPFTV8_Abl_coarse_zsOnly_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "05_FMPFTV8Abl_skipFinest_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "05_FMPFTV8Abl_noUshape_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "05_FMPFTV8Abl_noUshapeDFuse_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "05_FMPFTV8Abl_convBottleneck_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_seed1983:test100y42h0c:testdataset_100y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_seed7714:test100y42h0c:testdataset_100y42h0c"
+  # "03_FMPFTV8_Abl_static_demOnly_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "03_FMPFTV8_Abl_static_noSlope_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "03_FMPFTV8_Abl_static_noTWI_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "03_FMPFTV8_Abl_static_noAspect_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "03_FMPFTV8_Abl_static_noRough_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "03_FMPFTV8_Abl_static_noDEM_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "03_FMPFTV8_Abl_coarse_demOnly_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "03_FMPFTV8_Abl_coarse_zsOnly_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "05_FMPFTV8Abl_skipFinest_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "05_FMPFTV8Abl_noUshape_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "05_FMPFTV8Abl_noUshapeDFuse_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # "05_FMPFTV8Abl_convBottleneck_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
   # ===== Paper 1 jobs (already aggregated) -- kept for provenance, commented =====
   # --- 01 main model -> ALL 7 test sets (factor-8) ---
   # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test2y42h0c:testdataset_2y42h0c"
@@ -218,6 +224,8 @@ TEST_JOBS=(
   # --- 01 seed replicates -> 100y only (h-only; comment out for VAR=u/v) ---
   # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_seed1202:test100y42h0c:testdataset_100y42h0c"
   # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_seed2027:test100y42h0c:testdataset_100y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_seed1983:test100y42h0c:testdataset_100y42h0c"
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_seed7714:test100y42h0c:testdataset_100y42h0c"
   # --- 02 baselines -> 100y + gabrielle ---
   # "02_FMPFTV7_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
   # "02_FMPFTV7_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
@@ -276,12 +284,12 @@ TEST_JOBS=(
   #       (no new inference) to add PSNR/SSIM + the S16 edge/centre columns. =====
   # --- Row B (fine 512) ---
   # "06_FMPFTV8_SRx2_PF512_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c_ds2_pf512"
-  # "06_FMPFTV8_SRx4_PF512_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c_ds4_pf512"
-  # "06_FMPFTV8_SRx16_PF512_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c_ds16_pf512"
+  "06_FMPFTV8_SRx4_PF512_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c_ds4_pf512"
+  "06_FMPFTV8_SRx16_PF512_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c_ds16_pf512"
   # --- Row A (coarse 64) + s = 8 ---
-  # "06_FMPFTV8_SRx2_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c_ds2"
-  # "06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c_ds4"
-  # "06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c_ds16"
+  "06_FMPFTV8_SRx2_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c_ds2"
+  "06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c_ds4"
+  "06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c_ds16"
   # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
   # ===== Paper 2 M2 static-input probes on 01 @1M (val + 100y_42h). UNCOMMENT after the M2probe test_flood_map
   #       jobs are done. Reference row = the existing 01 1M eval (no extra job). No new baselines needed. =====
@@ -338,15 +346,15 @@ TEST_JOBS=(
   # ===== Paper 2 S1 guidance x factor: row (j) noUshape at 1M (val + 100y). UNCOMMENT after its test_flood_map jobs.
   #       The matching FULL models (Row B + 01 1M) and the baselines are in the M3 block -> uncomment that too. =====
   # "06_FMPFTV8Abl_noUshape_SRx2_PF512_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c_ds2_pf512"
-  # "06_FMPFTV8Abl_noUshape_SRx4_PF512_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c_ds4_pf512"
-  # "06_FMPFTV8Abl_noUshape_SRx16_PF512_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c_ds16_pf512"
+  "06_FMPFTV8Abl_noUshape_SRx4_PF512_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c_ds4_pf512"
+  "06_FMPFTV8Abl_noUshape_SRx16_PF512_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c_ds16_pf512"
   # "05_FMPFTV8Abl_noUshape_SRx8_Filter_InbaL1BCE_LW_1M:test100y42h0c:testdataset_100y42h0c"
   # ===== Paper 2 S2 Delta-t coarse input at 1M (val + 100y; gabrielle optional). UNCOMMENT after its test_flood_map jobs.
   #       Single-frame reference = 01 at 1M (its val/100y predictions must be in results/ - restore from archive). =====
-  # "07_FMPFTV8_SRx8_dtc1_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  # "07_FMPFTV8_SRx8_dtc3_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  # "07_FMPFTV8_SRx8_dts1_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  # "07_FMPFTV8_SRx8_dts3_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  "07_FMPFTV8_SRx8_dtc1_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  "07_FMPFTV8_SRx8_dtc3_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  "07_FMPFTV8_SRx8_dts1_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  "07_FMPFTV8_SRx8_dts3_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
   # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"   # single-frame reference
   # --- optional: Gabrielle ---
   # "07_FMPFTV8_SRx8_dtc1_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"
@@ -356,8 +364,8 @@ TEST_JOBS=(
   # ===== Paper 2 S3(a) cross-resolution: 8 m-trained models on the TRUE 16 m BG-Flood run of 100y_42h (1M).
   #       UNCOMMENT after the *_eval_test100y42h0c_xres16 test_flood_map jobs. Same-model 8 m references =
   #       01 on testdataset_100y42h0c (S2 block) and 06_*_PF512 on testdataset_100y42h0c_ds{2,4}_pf512 (M3 block). =====
-  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test100y42h0c_xres16:testdataset_100y42h0c_xres16_ds8"
-  # "06_FMPFTV8_SRx4_PF512_Filter_InbaL1BCE_LW:test100y42h0c_xres16:testdataset_100y42h0c_xres16_ds4"
+  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test100y42h0c_xres16:testdataset_100y42h0c_xres16_ds8"
+  "06_FMPFTV8_SRx4_PF512_Filter_InbaL1BCE_LW:test100y42h0c_xres16:testdataset_100y42h0c_xres16_ds4"
   # "06_FMPFTV8_SRx2_PF512_Filter_InbaL1BCE_LW:test100y42h0c_xres16:testdataset_100y42h0c_xres16_ds2"
   # ===== Paper 2 S4 beyond-design: 01 @1M on 1000y_48h x1.25 / x1.5 / x2 (+ x3 optional) (UNCOMMENT after their
   #       test_flood_map jobs). x1 column = 1000y_48h full maps labelled "seen scenario" + 1000y_42h as the
@@ -380,11 +388,11 @@ TEST_JOBS=(
   #       its eval ymls (they refuse to run with t_start: ~). Paper 1 rows (TG-PFT, PFT-V7, UNet, SwinFlood, RSwinUNet)
   #       are NOT re-evaluated here: their numbers are final.
   #       Baselines: ds8 val + test100y42h0c, already computed for M1 (no extra baseline line needed). =====
-  # "08_FMSATV8_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  # "08_FMSATV7_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  # "08_FLOSR_SRx8_Filter_InbaL1:test100y42h0c:testdataset_100y42h0c"
-  # "08_SongDenseUNet_SRx8_Filter_InbaL1:test100y42h0c:testdataset_100y42h0c"
-  # "08_ShenCBAMGAN_SRx8_Filter_OwnLoss:test100y42h0c:testdataset_100y42h0c"
+  "08_FMSATV8_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  "08_FMSATV7_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  "08_FLOSR_SRx8_Filter_InbaL1:test100y42h0c:testdataset_100y42h0c"
+  "08_SongDenseUNet_SRx8_Filter_InbaL1:test100y42h0c:testdataset_100y42h0c"
+  "08_ShenCBAMGAN_SRx8_Filter_OwnLoss:test100y42h0c:testdataset_100y42h0c"
   # "08_FloodDM_SRx8_Filter_EpsL1:test100y42h0c:testdataset_100y42h0c"
   # "08_FloodDM_SRx8_Filter_EpsL1:test100y42h0c_400k:testdataset_100y42h0c"   # Flood-DM at their 400k budget (SI)
 )
@@ -438,17 +446,17 @@ RUN_BASELINES=1
 FORCE_BASELINES=1   # Paper 2: recompute ds8 val + 100y baselines so they carry PSNR/SSIM
 # VAL baseline -> "selector_exp_base:train_dataset_dir" (selector's val vis pins the subset)
 VAL_BASELINE_JOBS=(
-  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"   # Paper 2 M1 (selector only pins the val patch set; same set for every s=8 run)
+  # "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"   # Paper 2 M1 (selector only pins the val patch set; same set for every s=8 run)
   # "06_FMPFTV8_SRx2_Filter_InbaL1BCE_LW:dataset_ds2_filtered_thr0p1_min25100_full"
   # "06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW:dataset_ds4_filtered_thr0p1_min10100_full"
   # "06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW:dataset_ds16_filtered_thr0p1_min2100_full"
   # --- Paper 2 M3 (uncomment with the M3 block; Row B outputs carry _pf512) ---
   # "06_FMPFTV8_SRx2_PF512_Filter_InbaL1BCE_LW:dataset_ds2_pf512_filtered_thr0p1_min25100_full"
-  # "06_FMPFTV8_SRx4_PF512_Filter_InbaL1BCE_LW:dataset_ds4_pf512_filtered_thr0p1_min10100_full"
-  # "06_FMPFTV8_SRx16_PF512_Filter_InbaL1BCE_LW:dataset_ds16_pf512_filtered_thr0p1_min2100_full"
-  # "06_FMPFTV8_SRx2_Filter_InbaL1BCE_LW:dataset_ds2_filtered_thr0p1_min25100_full"
-  # "06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW:dataset_ds4_filtered_thr0p1_min10100_full"
-  # "06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW:dataset_ds16_filtered_thr0p1_min2100_full"
+  "06_FMPFTV8_SRx4_PF512_Filter_InbaL1BCE_LW:dataset_ds4_pf512_filtered_thr0p1_min10100_full"
+  "06_FMPFTV8_SRx16_PF512_Filter_InbaL1BCE_LW:dataset_ds16_pf512_filtered_thr0p1_min2100_full"
+  "06_FMPFTV8_SRx2_Filter_InbaL1BCE_LW:dataset_ds2_filtered_thr0p1_min25100_full"
+  "06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW:dataset_ds4_filtered_thr0p1_min10100_full"
+  "06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW:dataset_ds16_filtered_thr0p1_min2100_full"
 )
 # TEST baseline -> "eval_tag:test_dataset_dir"
 TEST_BASELINE_JOBS=(
@@ -456,7 +464,7 @@ TEST_BASELINE_JOBS=(
   # "test5y42h0c:testdataset_5y42h0c"
   # "test10y42h0c:testdataset_10y42h0c"
   # "test50y42h0c:testdataset_50y42h0c"
-  "test100y42h0c:testdataset_100y42h0c"   # Paper 2 M1
+  # "test100y42h0c:testdataset_100y42h0c"   # Paper 2 M1
   # "test100y42h0c:testdataset_100y42h0c"
   # "test1000y42h0c:testdataset_1000y42h0c"
   # "gabrielle:testdataset_gabrielle"
@@ -468,14 +476,14 @@ TEST_BASELINE_JOBS=(
   # "gabrielle:testdataset_gabrielle_ds16"
   # --- Paper 2 M3 (uncomment with the M3 block) ---
   # "test100y42h0c:testdataset_100y42h0c_ds2_pf512"
-  # "test100y42h0c:testdataset_100y42h0c_ds4_pf512"
-  # "test100y42h0c:testdataset_100y42h0c_ds16_pf512"
-  # "test100y42h0c:testdataset_100y42h0c_ds2"
-  # "test100y42h0c:testdataset_100y42h0c_ds4"
-  # "test100y42h0c:testdataset_100y42h0c_ds16"
+  "test100y42h0c:testdataset_100y42h0c_ds4_pf512"
+  "test100y42h0c:testdataset_100y42h0c_ds16_pf512"
+  "test100y42h0c:testdataset_100y42h0c_ds2"
+  "test100y42h0c:testdataset_100y42h0c_ds4"
+  "test100y42h0c:testdataset_100y42h0c_ds16"
   # --- Paper 2 S3(a) (uncomment with the S3 block; bicubic of the coarse map onto the 16 m grid) ---
-  # "test100y42h0c_xres16:testdataset_100y42h0c_xres16_ds8"
-  # "test100y42h0c_xres16:testdataset_100y42h0c_xres16_ds4"
+  "test100y42h0c_xres16:testdataset_100y42h0c_xres16_ds8"
+  "test100y42h0c_xres16:testdataset_100y42h0c_xres16_ds4"
   # "test100y42h0c_xres16:testdataset_100y42h0c_xres16_ds2"
   # --- Paper 2 S4 (uncomment with the S4 block; bicubic of the dx64 map onto the 8 m grid) ---
   # "test1000y48h0cx1p25:testdataset_1000y48h0cx1p25"
