@@ -444,7 +444,8 @@ TRAINMAX_EXP_TAGS=(
 # PART (2026-10-28): split one big aggregation into two PBS jobs that run in parallel (outputs never overlap).
 #   all  = everything active below;  val = VAL_JOBS + VAL_BASELINE_JOBS only;  test = TEST_JOBS + TEST_BASELINE_JOBS only.
 #   Set PART=val -> qsub, then PART=test -> qsub again (PBS copies the script at qsub time).
-PART=all
+#   testbase = TEST_BASELINE_JOBS only (2026-10-29: rerun failed test baselines without redoing the model evals).
+PART=testbase   # 2026-10-29: rerun the 5 failed test baselines only (was val / test on 10-28)
 DRY_RUN=0
 RUN_BASELINES=1
 FORCE_BASELINES=1   # Paper 2: recompute ds8 val + 100y baselines so they carry PSNR/SSIM
@@ -463,14 +464,16 @@ VAL_BASELINE_JOBS=(
   "06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW:dataset_ds16_filtered_thr0p1_min2100_full"
 )
 # TEST baseline -> "eval_tag:test_dataset_dir"
+# 2026-10-29: "# DONE-1028" = succeeded in the 2026-10-28 PART=test run -> commented for the PART=testbase rerun of
+# the 5 failed 100y ds2/ds4/ds16(/pf512) baselines; remove the marker to re-activate.
 TEST_BASELINE_JOBS=(
   # "test2y42h0c:testdataset_2y42h0c"
   # "test5y42h0c:testdataset_5y42h0c"
   # "test10y42h0c:testdataset_10y42h0c"
   # "test50y42h0c:testdataset_50y42h0c"
-  "test100y42h0c:testdataset_100y42h0c"   # Paper 2 M1
+  # DONE-1028 "test100y42h0c:testdataset_100y42h0c"   # Paper 2 M1
   # "test100y42h0c:testdataset_100y42h0c"
-  "test1000y42h0c:testdataset_1000y42h0c"
+  # DONE-1028 "test1000y42h0c:testdataset_1000y42h0c"
   # "gabrielle:testdataset_gabrielle"
   # "test100y42h0c:testdataset_100y42h0c_ds2"
   # "gabrielle:testdataset_gabrielle_ds2"
@@ -486,19 +489,19 @@ TEST_BASELINE_JOBS=(
   "test100y42h0c:testdataset_100y42h0c_ds4"
   "test100y42h0c:testdataset_100y42h0c_ds16"
   # --- Paper 2 S3(a) (uncomment with the S3 block; bicubic of the coarse map onto the 16 m grid) ---
-  "test100y42h0c_xres16:testdataset_100y42h0c_xres16_ds8"
-  "test100y42h0c_xres16:testdataset_100y42h0c_xres16_ds4"
+  # DONE-1028 "test100y42h0c_xres16:testdataset_100y42h0c_xres16_ds8"
+  # DONE-1028 "test100y42h0c_xres16:testdataset_100y42h0c_xres16_ds4"
   # "test100y42h0c_xres16:testdataset_100y42h0c_xres16_ds2"
   # --- Paper 2 S4 (uncomment with the S4 block; bicubic of the dx64 map onto the 8 m grid) ---
-  "test1000y48h0cx1p25:testdataset_1000y48h0cx1p25"
-  "test1000y48h0cx1p5:testdataset_1000y48h0cx1p5"
-  "test1000y48h0cx2p0:testdataset_1000y48h0cx2p0"
-  "test1000y48h0cx3p0:testdataset_1000y48h0cx3p0"     # OPTIONAL
-  "test1000y48h0c:testdataset_1000y48h0c"             # x1, seen scenario
+  # DONE-1028 "test1000y48h0cx1p25:testdataset_1000y48h0cx1p25"
+  # DONE-1028 "test1000y48h0cx1p5:testdataset_1000y48h0cx1p5"
+  # DONE-1028 "test1000y48h0cx2p0:testdataset_1000y48h0cx2p0"
+  # DONE-1028 "test1000y48h0cx3p0:testdataset_1000y48h0cx3p0"     # OPTIONAL
+  # DONE-1028 "test1000y48h0c:testdataset_1000y48h0c"             # x1, seen scenario
   # --- Paper 2 S5 (uncomment with the S5 block) ---
-  "test100y48h0cdp11:testdataset_100y48h0cdp11"
-  "test100y48h0cdp21:testdataset_100y48h0cdp21"
-  "test100y48h0c:testdataset_100y48h0c"               # single peak, seen scenario
+  # DONE-1028 "test100y48h0cdp11:testdataset_100y48h0cdp11"
+  # DONE-1028 "test100y48h0cdp21:testdataset_100y48h0cdp21"
+  # DONE-1028 "test100y48h0c:testdataset_100y48h0c"               # single peak, seen scenario
 )
 # =======================================================================
 
@@ -571,9 +574,10 @@ eval_one_test () {
     || { echo "[FAILED][$tag] $exp"; FAILED+=("$exp:$tag"); return 0; }
 }
 
-case "$PART" in all|val|test) ;; *) echo "[error] PART must be all / val / test (got $PART)" >&2; exit 1 ;; esac
+case "$PART" in all|val|test|testbase) ;; *) echo "[error] PART must be all / val / test / testbase (got $PART)" >&2; exit 1 ;; esac
 if [[ "$PART" == "test" ]]; then VAL_JOBS=(); VAL_BASELINE_JOBS=(); fi
 if [[ "$PART" == "val" ]]; then TEST_JOBS=(); TEST_BASELINE_JOBS=(); fi
+if [[ "$PART" == "testbase" ]]; then VAL_JOBS=(); TEST_JOBS=(); VAL_BASELINE_JOBS=(); fi
 
 if [[ "$DRY_RUN" == "1" ]]; then
   echo "==================== DRY RUN (nothing is evaluated) ===================="
@@ -651,7 +655,10 @@ if [[ "$RUN_BASELINES" == "1" ]]; then
     idx="$ROOT/$dsdir/$TEST_INDEX"
     if [[ ! -f "$idx" ]]; then echo "[skip][baseline][$tag] no index: $idx"; continue; fi
     _TBASE_DONE[${tag}_${dstag}]=1
-    if ! TMX=$(tmax_args "$tag" "baseline:$tag"); then
+    # 2026-10-29: the train-max map is on the ds8 grid (8 m fine / 64 m coarse) -> only ds8 baselines may use it;
+    # "baseline:test100y42h0c" otherwise also hit the ds2/ds4/ds16(/pf512) M3 baselines of that tag and crashed.
+    TMX=""
+    if [[ "$dstag" == "ds8" ]] && ! TMX=$(tmax_args "$tag" "baseline:$tag"); then
       echo "[skip][baseline][$tag] train-max map missing"; FAILED+=("baseline:$tag:$dsdir:train-max-map-missing"); continue
     fi
     echo "[baseline][$tag] dataset=$dsdir ($dstag) ${TMX}"
