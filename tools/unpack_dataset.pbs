@@ -41,6 +41,10 @@ cd "$BASE"
 
 # ===================== EDIT HERE: which datasets to unpack =====================
 DATASETS=(
+  # ===== Paper 2 S6 catchment B (Porangahau): train set + 100y_42h test set (2026-11-01) =====
+  dataset_porangahau_ds8_filtered_thr0p1_min5100_full
+  testdataset_porangahau_100y42h0c
+  # testdataset_porangahau_gabrielle     # after the Gabrielle dx8 run + s6_prepare (filter testpatches)
   # ===== Paper 2 M3 Row B (fine patch 512): 3 train + 3 test datasets -- DONE (training HPC) =====
   # dataset_ds2_pf512_filtered_thr0p1_min25100_full
   # dataset_ds4_pf512_filtered_thr0p1_min10100_full
@@ -49,15 +53,15 @@ DATASETS=(
   # testdataset_100y42h0c_ds4_pf512
   # testdataset_100y42h0c_ds16_pf512
   # ===== Paper 2 S5 unseen-pattern test sets (uncomment after make_patches_testset.sh S5 lines) =====
-  testdataset_100y48h0cdp11
-  testdataset_100y48h0cdp21
-  testdataset_100y48h0c           # S5 single-peak column (seen scenario)
+  # testdataset_100y48h0cdp11   # DONE
+  # testdataset_100y48h0cdp21   # DONE
+  # testdataset_100y48h0c           # S5 single-peak column (seen scenario)   # DONE
   # ===== Paper 2 S4 beyond-design test sets (uncomment after make_patches_testset.sh S4 lines) =====
-  testdataset_1000y48h0cx1p25
-  testdataset_1000y48h0cx1p5
-  testdataset_1000y48h0cx2p0
-  testdataset_1000y48h0cx3p0      # OPTIONAL stress test
-  testdataset_1000y48h0c          # S4 x1 column (seen scenario)
+  # testdataset_1000y48h0cx1p25   # DONE
+  # testdataset_1000y48h0cx1p5   # DONE
+  # testdataset_1000y48h0cx2p0   # DONE
+  # testdataset_1000y48h0cx3p0      # OPTIONAL stress test   # DONE
+  # testdataset_1000y48h0c          # S4 x1 column (seen scenario)   # DONE
   # ===== Paper 2 S3(a) cross-resolution test, 16 m targets -- DONE 2026-10-27 =====
   # testdataset_100y42h0c_xres16_ds8     # DONE 2026-10-27 (unpacked on both NIWA HPCs)
   # testdataset_100y42h0c_xres16_ds4     # DONE 2026-10-27 (unpacked on both NIWA HPCs)
@@ -75,8 +79,8 @@ DATASETS=(
   # testdataset_5y42h0c
   # testdataset_10y42h0c
   # testdataset_50y42h0c
-  testdataset_100y42h0c           # 2026-10-27: S2/S8 test + S4/S5 unseen refs (training HPC)
-  testdataset_1000y42h0c          # 2026-10-27: S2/S8 test + S4/S5 unseen refs (training HPC)
+  # testdataset_100y42h0c           # 2026-10-27: S2/S8 test + S4/S5 unseen refs (training HPC)   # DONE
+  # testdataset_1000y42h0c          # 2026-10-27: S2/S8 test + S4/S5 unseen refs (training HPC)   # DONE
   # --- test: downscaling-factor ablation (100y only) ---
   # testdataset_100y42h0c_ds2
   # testdataset_100y42h0c_ds4
