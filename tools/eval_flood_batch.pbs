@@ -74,12 +74,12 @@ VAL_JOBS=(
   #       reads the existing *_pbs predictions; metrics unchanged, PSNR/SSIM added). Rows = 01 seed replicates 1202/2027
   #       + the S8 'reused from Paper 1' rows: PFT-V7, UNet/SwinFlood/RSwinUNet in their NATIVE loss. Baselines: ds8
   #       val + 100y already carry PSNR/SSIM (M1 run / 2026-10-28) -> RUN_BASELINES=0. "# DONE-1028" = done 10-28. =====
-  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_seed1202:dataset_ds8_filtered_thr0p1_min5100_full"
-  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_seed2027:dataset_ds8_filtered_thr0p1_min5100_full"
-  "02_FMPFTV7_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
-  "02_HeUNet_SRx8_Filter_InbaL2:dataset_ds8_filtered_thr0p1_min5100_full"
-  "02_SwinFlood_SRx8_Filter_InbaL2:dataset_ds8_filtered_thr0p1_min5100_full"
-  "02_RSwinUNet_SRx8_Filter_InbaL1:dataset_ds8_filtered_thr0p1_min5100_full"
+  # DONE-1029 "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_seed1202:dataset_ds8_filtered_thr0p1_min5100_full"
+  # DONE-1029 "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_seed2027:dataset_ds8_filtered_thr0p1_min5100_full"
+  # DONE-1029 "02_FMPFTV7_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
+  # DONE-1029 "02_HeUNet_SRx8_Filter_InbaL2:dataset_ds8_filtered_thr0p1_min5100_full"
+  # DONE-1029 "02_SwinFlood_SRx8_Filter_InbaL2:dataset_ds8_filtered_thr0p1_min5100_full"
+  # DONE-1029 "02_RSwinUNet_SRx8_Filter_InbaL1:dataset_ds8_filtered_thr0p1_min5100_full"
   # --- optional: matched-loss (InbaL1BCE_LW) variants of the three baselines (Paper 1 Exp1) ---
   # "02_HeUNet_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
   # "02_SwinFlood_SRx8_Filter_InbaL1BCE_LW:dataset_ds8_filtered_thr0p1_min5100_full"
@@ -202,6 +202,16 @@ VAL_JOBS=(
   # DONE-1028 "08_SongDenseUNet_SRx8_Filter_InbaL1:dataset_ds8_filtered_thr0p1_min5100_full"
   # DONE-1028 "08_ShenCBAMGAN_SRx8_Filter_OwnLoss:dataset_ds8_filtered_thr0p1_min5100_full"
   # DONE-1028 "08_FloodDM_SRx8_Filter_EpsL1:dataset_ds8_filtered_thr0p1_min5100_full"
+  # ===== Paper 2 S6 transfer triple on catchment B (Porangahau): (a) zero-shot 01 @1M, (b) fine-tuned from 01, (c) from
+  #       scratch (b/c: 117454 it = 01's epochs; net_g_latest). UNCOMMENT after their test_flood_map jobs
+  #       (options/test/09_*_eval_{val,testporangahau100y42h0c}.pbs). Baselines: the two S6 lines in VAL/TEST_BASELINE_JOBS
+  #       (+ RUN_BASELINES=1); their outputs carry ds8_porangahau. Gabrielle on B: tag testporangahaugabrielle (lines below). =====
+  "09_FMPFTV8_SRx8_PorangahauZeroShot_Filter_InbaL1BCE_LW:dataset_porangahau_ds8_filtered_thr0p1_min5100_full"   # (a) zero-shot 01 @1M
+  "09_FMPFTV8_SRx8_PorangahauFT_Filter_InbaL1BCE_LW:dataset_porangahau_ds8_filtered_thr0p1_min5100_full"   # (b) fine-tuned from 01
+  "09_FMPFTV8_SRx8_PorangahauScratch_Filter_InbaL1BCE_LW:dataset_porangahau_ds8_filtered_thr0p1_min5100_full"   # (c) from scratch
+  # ===== Paper 2 Q3 control (2026-11-01): M1-B row (k) no-fine-topography @400k (same ckpt as its M1 row), zero-shot on
+  #       catchment B. Gisborne stats (hybrid json). Train HPC (B data). Pair with the S6 (a) line above. =====
+  "09_FMPFTV8Abl_noFineTopo_SRx8_PorangahauZeroShot_Filter_InbaL1BCE_LW:dataset_porangahau_ds8_filtered_thr0p1_min5100_full"   # (k) zero-shot @400k
 )
 
 # TEST jobs -> "exp_base:eval_tag:test_dataset_dir"  (complete maps; read *_global).
@@ -210,12 +220,12 @@ TEST_JOBS=(
   #       reads the existing *_pbs predictions; metrics unchanged, PSNR/SSIM added). Rows = 01 seed replicates 1202/2027
   #       + the S8 'reused from Paper 1' rows: PFT-V7, UNet/SwinFlood/RSwinUNet in their NATIVE loss. Baselines: ds8
   #       val + 100y already carry PSNR/SSIM (M1 run / 2026-10-28) -> RUN_BASELINES=0. "# DONE-1028" = done 10-28. =====
-  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_seed1202:test100y42h0c:testdataset_100y42h0c"
-  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_seed2027:test100y42h0c:testdataset_100y42h0c"
-  "02_FMPFTV7_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
-  "02_HeUNet_SRx8_Filter_InbaL2:test100y42h0c:testdataset_100y42h0c"
-  "02_SwinFlood_SRx8_Filter_InbaL2:test100y42h0c:testdataset_100y42h0c"
-  "02_RSwinUNet_SRx8_Filter_InbaL1:test100y42h0c:testdataset_100y42h0c"
+  # DONE-1029 "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_seed1202:test100y42h0c:testdataset_100y42h0c"
+  # DONE-1029 "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW_seed2027:test100y42h0c:testdataset_100y42h0c"
+  # DONE-1029 "02_FMPFTV7_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
+  # DONE-1029 "02_HeUNet_SRx8_Filter_InbaL2:test100y42h0c:testdataset_100y42h0c"
+  # DONE-1029 "02_SwinFlood_SRx8_Filter_InbaL2:test100y42h0c:testdataset_100y42h0c"
+  # DONE-1029 "02_RSwinUNet_SRx8_Filter_InbaL1:test100y42h0c:testdataset_100y42h0c"
   # --- optional: matched-loss (InbaL1BCE_LW) variants of the three baselines (Paper 1 Exp1) ---
   # "02_HeUNet_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
   # "02_SwinFlood_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"
@@ -423,6 +433,35 @@ TEST_JOBS=(
   # DONE-1028 "08_ShenCBAMGAN_SRx8_Filter_OwnLoss:test100y42h0c:testdataset_100y42h0c"
   # DONE-1028 "08_FloodDM_SRx8_Filter_EpsL1:test100y42h0c:testdataset_100y42h0c"
   # "08_FloodDM_SRx8_Filter_EpsL1:test100y42h0c_400k:testdataset_100y42h0c"   # Flood-DM at their 400k budget (SI)
+  # ===== Paper 2 S6 transfer triple on catchment B (Porangahau): (a) zero-shot 01 @1M, (b) fine-tuned from 01, (c) from
+  #       scratch (b/c: 117454 it = 01's epochs; net_g_latest). UNCOMMENT after their test_flood_map jobs
+  #       (options/test/09_*_eval_{val,testporangahau100y42h0c}.pbs). Baselines: the two S6 lines in VAL/TEST_BASELINE_JOBS
+  #       (+ RUN_BASELINES=1); their outputs carry ds8_porangahau. Gabrielle on B: tag testporangahaugabrielle (lines below). =====
+  "09_FMPFTV8_SRx8_PorangahauZeroShot_Filter_InbaL1BCE_LW:testporangahau100y42h0c:testdataset_porangahau_100y42h0c"   # (a) zero-shot 01 @1M
+  "09_FMPFTV8_SRx8_PorangahauFT_Filter_InbaL1BCE_LW:testporangahau100y42h0c:testdataset_porangahau_100y42h0c"   # (b) fine-tuned from 01
+  "09_FMPFTV8_SRx8_PorangahauScratch_Filter_InbaL1BCE_LW:testporangahau100y42h0c:testdataset_porangahau_100y42h0c"   # (c) from scratch
+  # --- B Cyclone Gabrielle (needs testdataset_porangahau_gabrielle: s6_prepare STEPS=(filter testpatches) gabrielle-only) ---
+  # "09_FMPFTV8_SRx8_PorangahauZeroShot_Filter_InbaL1BCE_LW:testporangahaugabrielle:testdataset_porangahau_gabrielle"   # (a)
+  # "09_FMPFTV8_SRx8_PorangahauFT_Filter_InbaL1BCE_LW:testporangahaugabrielle:testdataset_porangahau_gabrielle"   # (b)
+  # "09_FMPFTV8_SRx8_PorangahauScratch_Filter_InbaL1BCE_LW:testporangahaugabrielle:testdataset_porangahau_gabrielle"   # (c)
+  # ===== Paper 2 Q3 control (2026-11-01): M1-B row (k) no-fine-topography @400k through the S3/S4/S5/S6 + Gabrielle tests
+  #       (options/test/05_FMPFTV8Abl_noFineTopo_*_eval_<tag>.pbs, 09_FMPFTV8Abl_noFineTopo_*). Baselines: same as the 01
+  #       rows (already DONE-1028 / S6 lines) -> RUN_BASELINES=0 except with the S6 lines. Its 100y42h0c eval = M1 block. =====
+  "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test100y42h0c_xres16:testdataset_100y42h0c_xres16_ds8"   # S3
+  "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test1000y48h0cx1p25:testdataset_1000y48h0cx1p25"   # S4
+  "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test1000y48h0cx1p5:testdataset_1000y48h0cx1p5"
+  "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test1000y48h0cx2p0:testdataset_1000y48h0cx2p0"
+  "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test1000y48h0cx3p0:testdataset_1000y48h0cx3p0"   # OPTIONAL stress test
+  "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test1000y48h0c:testdataset_1000y48h0c"   # x1, seen scenario
+  "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test1000y42h0c:testdataset_1000y42h0c"   # x1, unseen reference
+  "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test100y48h0cdp11:testdataset_100y48h0cdp11"   # S5
+  "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test100y48h0cdp21:testdataset_100y48h0cdp21"
+  "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test100y48h0c:testdataset_100y48h0c"   # single peak, seen scenario
+  # "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"   # single peak, unseen ref: RE-AGGREGATE only (M1 400k predictions must be in results/)
+  "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"   # Gisborne Gabrielle
+  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"   # 01 @1M Gabrielle re-run 2026-11-01 (PSNR/SSIM; pairs with (k))
+  "09_FMPFTV8Abl_noFineTopo_SRx8_PorangahauZeroShot_Filter_InbaL1BCE_LW:testporangahau100y42h0c:testdataset_porangahau_100y42h0c"   # S6 B zero-shot (train HPC)
+  # "09_FMPFTV8Abl_noFineTopo_SRx8_PorangahauZeroShot_Filter_InbaL1BCE_LW:testporangahaugabrielle:testdataset_porangahau_gabrielle"   # S6 B Gabrielle (train HPC)
 )
 
 # Paper 2 S4/S5: per-cell TRAINING max-depth maps (tools/make_train_maxdepth.sh, NeSI -> copy the .npz here;
@@ -453,6 +492,8 @@ TRAINMAX_EXP_TAGS=(
   "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:test100y42h0c"
   "baseline:test1000y42h0c"
   "baseline:test100y42h0c"
+  "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test1000y42h0c"   # Q3 control (k) @400k: uncomment with its S4/S5 lines
+  # "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test100y42h0c"
 )
 
 # coarse-upsample baselines (bicubic upsample of the coarse map). MODEL-INDEPENDENT
@@ -473,9 +514,9 @@ TRAINMAX_EXP_TAGS=(
 #   all  = everything active below;  val = VAL_JOBS + VAL_BASELINE_JOBS only;  test = TEST_JOBS + TEST_BASELINE_JOBS only.
 #   Set PART=val -> qsub, then PART=test -> qsub again (PBS copies the script at qsub time).
 #   testbase = TEST_BASELINE_JOBS only (2026-10-29: rerun failed test baselines without redoing the model evals).
-PART=all   # 2026-10-29: Paper 1 rows PSNR/SSIM re-aggregation (testbase rerun of 10-29 done; val / test on 10-28)
+PART=all   # 2026-11-02: S6 (a/b/c val+100y) + Q3 control (k)@400k + 01 Gabrielle re-run = 20 model evals
 DRY_RUN=0
-RUN_BASELINES=0   # 2026-10-29: ds8 val + 100y baselines already have PSNR/SSIM; set 1 again for new factor/test-set blocks
+RUN_BASELINES=1   # 2026-11-02: B val + B 100y (new) + Gisborne Gabrielle (Paper 1 json has no PSNR/SSIM -> recompute)
 FORCE_BASELINES=1   # Paper 2: recompute ds8 val + 100y baselines so they carry PSNR/SSIM
 # VAL baseline -> "selector_exp_base:train_dataset_dir" (selector's val vis pins the subset)
 VAL_BASELINE_JOBS=(
@@ -485,11 +526,13 @@ VAL_BASELINE_JOBS=(
   # "06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW:dataset_ds16_filtered_thr0p1_min2100_full"
   # --- Paper 2 M3 (uncomment with the M3 block; Row B outputs carry _pf512) ---
   # "06_FMPFTV8_SRx2_PF512_Filter_InbaL1BCE_LW:dataset_ds2_pf512_filtered_thr0p1_min25100_full"
-  "06_FMPFTV8_SRx4_PF512_Filter_InbaL1BCE_LW:dataset_ds4_pf512_filtered_thr0p1_min10100_full"
-  "06_FMPFTV8_SRx16_PF512_Filter_InbaL1BCE_LW:dataset_ds16_pf512_filtered_thr0p1_min2100_full"
-  "06_FMPFTV8_SRx2_Filter_InbaL1BCE_LW:dataset_ds2_filtered_thr0p1_min25100_full"
-  "06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW:dataset_ds4_filtered_thr0p1_min10100_full"
-  "06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW:dataset_ds16_filtered_thr0p1_min2100_full"
+  # DONE-1029 "06_FMPFTV8_SRx4_PF512_Filter_InbaL1BCE_LW:dataset_ds4_pf512_filtered_thr0p1_min10100_full"
+  # DONE-1029 "06_FMPFTV8_SRx16_PF512_Filter_InbaL1BCE_LW:dataset_ds16_pf512_filtered_thr0p1_min2100_full"
+  # DONE-1029 "06_FMPFTV8_SRx2_Filter_InbaL1BCE_LW:dataset_ds2_filtered_thr0p1_min25100_full"
+  # DONE-1029 "06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW:dataset_ds4_filtered_thr0p1_min10100_full"
+  # DONE-1029 "06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW:dataset_ds16_filtered_thr0p1_min2100_full"
+  # --- Paper 2 S6 catchment B (uncomment with the S6 block; any S6 row pins the same B val patch set) ---
+  "09_FMPFTV8_SRx8_PorangahauZeroShot_Filter_InbaL1BCE_LW:dataset_porangahau_ds8_filtered_thr0p1_min5100_full"
 )
 # TEST baseline -> "eval_tag:test_dataset_dir"
 # 2026-10-29: "# DONE-1028" = succeeded in the 2026-10-28 PART=test run -> commented for the PART=testbase rerun of
@@ -502,7 +545,7 @@ TEST_BASELINE_JOBS=(
   # DONE-1028 "test100y42h0c:testdataset_100y42h0c"   # Paper 2 M1
   # "test100y42h0c:testdataset_100y42h0c"
   # DONE-1028 "test1000y42h0c:testdataset_1000y42h0c"
-  # "gabrielle:testdataset_gabrielle"
+  "gabrielle:testdataset_gabrielle"
   # "test100y42h0c:testdataset_100y42h0c_ds2"
   # "gabrielle:testdataset_gabrielle_ds2"
   # "test100y42h0c:testdataset_100y42h0c_ds4"
@@ -511,11 +554,11 @@ TEST_BASELINE_JOBS=(
   # "gabrielle:testdataset_gabrielle_ds16"
   # --- Paper 2 M3 (uncomment with the M3 block) ---
   # "test100y42h0c:testdataset_100y42h0c_ds2_pf512"
-  "test100y42h0c:testdataset_100y42h0c_ds4_pf512"
-  "test100y42h0c:testdataset_100y42h0c_ds16_pf512"
-  "test100y42h0c:testdataset_100y42h0c_ds2"
-  "test100y42h0c:testdataset_100y42h0c_ds4"
-  "test100y42h0c:testdataset_100y42h0c_ds16"
+  # DONE-1029 "test100y42h0c:testdataset_100y42h0c_ds4_pf512"
+  # DONE-1029 "test100y42h0c:testdataset_100y42h0c_ds16_pf512"
+  # DONE-1029 "test100y42h0c:testdataset_100y42h0c_ds2"
+  # DONE-1029 "test100y42h0c:testdataset_100y42h0c_ds4"
+  # DONE-1029 "test100y42h0c:testdataset_100y42h0c_ds16"
   # --- Paper 2 S3(a) (uncomment with the S3 block; bicubic of the coarse map onto the 16 m grid) ---
   # DONE-1028 "test100y42h0c_xres16:testdataset_100y42h0c_xres16_ds8"
   # DONE-1028 "test100y42h0c_xres16:testdataset_100y42h0c_xres16_ds4"
@@ -530,6 +573,9 @@ TEST_BASELINE_JOBS=(
   # DONE-1028 "test100y48h0cdp11:testdataset_100y48h0cdp11"
   # DONE-1028 "test100y48h0cdp21:testdataset_100y48h0cdp21"
   # DONE-1028 "test100y48h0c:testdataset_100y48h0c"               # single peak, seen scenario
+  # --- Paper 2 S6 catchment B (uncomment with the S6 block) ---
+  "testporangahau100y42h0c:testdataset_porangahau_100y42h0c"
+  # "testporangahaugabrielle:testdataset_porangahau_gabrielle"
 )
 # =======================================================================
 
@@ -537,13 +583,16 @@ TEST_BASELINE_JOBS=(
 factor_tag () {
   # Paper 2 M3 Row B dirs (fine patch 512) carry "_pf512" -> tag dsN_pf512, so their baselines
   # never overwrite the Row A (coarse 64) baseline files of the same factor.
+  # Paper 2 S6 catchment B dirs (dataset_porangahau_* / testdataset_porangahau_*) carry "_porangahau" -> tag
+  # ds8_porangahau, so B's val baseline never overwrites Gisborne's eval_val_baseline_ds8.json.
   local pf=""
   case "$1" in *_pf512*) pf="_pf512" ;; esac
+  case "$1" in *porangahau*) pf="${pf}_porangahau" ;; esac
   case "$1" in
     *ds2_*|*_ds2)   echo "ds2${pf}"  ;;
     *ds4_*|*_ds4)   echo "ds4${pf}"  ;;
     *ds16_*|*_ds16) echo "ds16${pf}" ;;
-    *)              echo ds8  ;;   # factor-8 test dirs have no suffix; ds8 training dir
+    *)              echo "ds8${pf}"  ;;   # factor-8 test dirs have no suffix; ds8 training dir
   esac
 }
 
