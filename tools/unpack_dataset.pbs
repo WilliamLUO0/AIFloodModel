@@ -41,10 +41,10 @@ cd "$BASE"
 
 # ===================== EDIT HERE: which datasets to unpack =====================
 DATASETS=(
-  # ===== Paper 2 S6 catchment B (Porangahau): train set + 100y_42h test set (2026-11-01) =====
-  dataset_porangahau_ds8_filtered_thr0p1_min5100_full
-  testdataset_porangahau_100y42h0c
-  # testdataset_porangahau_gabrielle     # after the Gabrielle dx8 run + s6_prepare (filter testpatches)
+  # ===== Paper 2 S6 catchment B (Porangahau): train set + 100y_42h test set DONE 2026-11-01; Gabrielle test set 2026-11-02 =====
+  # dataset_porangahau_ds8_filtered_thr0p1_min5100_full   # DONE
+  # testdataset_porangahau_100y42h0c   # DONE
+  testdataset_porangahau_gabrielle     # after the Gabrielle dx8 run + s6_prepare (filter testpatches)
   # ===== Paper 2 M3 Row B (fine patch 512): 3 train + 3 test datasets -- DONE (training HPC) =====
   # dataset_ds2_pf512_filtered_thr0p1_min25100_full
   # dataset_ds4_pf512_filtered_thr0p1_min10100_full
