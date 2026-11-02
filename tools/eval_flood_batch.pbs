@@ -206,12 +206,12 @@ VAL_JOBS=(
   #       scratch (b/c: 117454 it = 01's epochs; net_g_latest). UNCOMMENT after their test_flood_map jobs
   #       (options/test/09_*_eval_{val,testporangahau100y42h0c}.pbs). Baselines: the two S6 lines in VAL/TEST_BASELINE_JOBS
   #       (+ RUN_BASELINES=1); their outputs carry ds8_porangahau. Gabrielle on B: tag testporangahaugabrielle (lines below). =====
-  "09_FMPFTV8_SRx8_PorangahauZeroShot_Filter_InbaL1BCE_LW:dataset_porangahau_ds8_filtered_thr0p1_min5100_full"   # (a) zero-shot 01 @1M
-  "09_FMPFTV8_SRx8_PorangahauFT_Filter_InbaL1BCE_LW:dataset_porangahau_ds8_filtered_thr0p1_min5100_full"   # (b) fine-tuned from 01
-  "09_FMPFTV8_SRx8_PorangahauScratch_Filter_InbaL1BCE_LW:dataset_porangahau_ds8_filtered_thr0p1_min5100_full"   # (c) from scratch
+  # DONE-1102 "09_FMPFTV8_SRx8_PorangahauZeroShot_Filter_InbaL1BCE_LW:dataset_porangahau_ds8_filtered_thr0p1_min5100_full"   # (a) zero-shot 01 @1M
+  # DONE-1102 "09_FMPFTV8_SRx8_PorangahauFT_Filter_InbaL1BCE_LW:dataset_porangahau_ds8_filtered_thr0p1_min5100_full"   # (b) fine-tuned from 01
+  # DONE-1102 "09_FMPFTV8_SRx8_PorangahauScratch_Filter_InbaL1BCE_LW:dataset_porangahau_ds8_filtered_thr0p1_min5100_full"   # (c) from scratch
   # ===== Paper 2 Q3 control (2026-11-01): M1-B row (k) no-fine-topography @400k (same ckpt as its M1 row), zero-shot on
   #       catchment B. Gisborne stats (hybrid json). Train HPC (B data). Pair with the S6 (a) line above. =====
-  "09_FMPFTV8Abl_noFineTopo_SRx8_PorangahauZeroShot_Filter_InbaL1BCE_LW:dataset_porangahau_ds8_filtered_thr0p1_min5100_full"   # (k) zero-shot @400k
+  # DONE-1102 "09_FMPFTV8Abl_noFineTopo_SRx8_PorangahauZeroShot_Filter_InbaL1BCE_LW:dataset_porangahau_ds8_filtered_thr0p1_min5100_full"   # (k) zero-shot @400k
 )
 
 # TEST jobs -> "exp_base:eval_tag:test_dataset_dir"  (complete maps; read *_global).
@@ -437,31 +437,31 @@ TEST_JOBS=(
   #       scratch (b/c: 117454 it = 01's epochs; net_g_latest). UNCOMMENT after their test_flood_map jobs
   #       (options/test/09_*_eval_{val,testporangahau100y42h0c}.pbs). Baselines: the two S6 lines in VAL/TEST_BASELINE_JOBS
   #       (+ RUN_BASELINES=1); their outputs carry ds8_porangahau. Gabrielle on B: tag testporangahaugabrielle (lines below). =====
-  "09_FMPFTV8_SRx8_PorangahauZeroShot_Filter_InbaL1BCE_LW:testporangahau100y42h0c:testdataset_porangahau_100y42h0c"   # (a) zero-shot 01 @1M
-  "09_FMPFTV8_SRx8_PorangahauFT_Filter_InbaL1BCE_LW:testporangahau100y42h0c:testdataset_porangahau_100y42h0c"   # (b) fine-tuned from 01
-  "09_FMPFTV8_SRx8_PorangahauScratch_Filter_InbaL1BCE_LW:testporangahau100y42h0c:testdataset_porangahau_100y42h0c"   # (c) from scratch
-  # --- B Cyclone Gabrielle (needs testdataset_porangahau_gabrielle: s6_prepare STEPS=(filter testpatches) gabrielle-only) ---
-  # "09_FMPFTV8_SRx8_PorangahauZeroShot_Filter_InbaL1BCE_LW:testporangahaugabrielle:testdataset_porangahau_gabrielle"   # (a)
-  # "09_FMPFTV8_SRx8_PorangahauFT_Filter_InbaL1BCE_LW:testporangahaugabrielle:testdataset_porangahau_gabrielle"   # (b)
-  # "09_FMPFTV8_SRx8_PorangahauScratch_Filter_InbaL1BCE_LW:testporangahaugabrielle:testdataset_porangahau_gabrielle"   # (c)
+  # DONE-1102 "09_FMPFTV8_SRx8_PorangahauZeroShot_Filter_InbaL1BCE_LW:testporangahau100y42h0c:testdataset_porangahau_100y42h0c"   # (a) zero-shot 01 @1M
+  # DONE-1102 "09_FMPFTV8_SRx8_PorangahauFT_Filter_InbaL1BCE_LW:testporangahau100y42h0c:testdataset_porangahau_100y42h0c"   # (b) fine-tuned from 01
+  # DONE-1102 "09_FMPFTV8_SRx8_PorangahauScratch_Filter_InbaL1BCE_LW:testporangahau100y42h0c:testdataset_porangahau_100y42h0c"   # (c) from scratch
+  # --- B Cyclone Gabrielle (test set built 2026-11-02, 4 test_flood_map done 2026-11-02) ---
+  "09_FMPFTV8_SRx8_PorangahauZeroShot_Filter_InbaL1BCE_LW:testporangahaugabrielle:testdataset_porangahau_gabrielle"   # (a)
+  "09_FMPFTV8_SRx8_PorangahauFT_Filter_InbaL1BCE_LW:testporangahaugabrielle:testdataset_porangahau_gabrielle"   # (b)
+  "09_FMPFTV8_SRx8_PorangahauScratch_Filter_InbaL1BCE_LW:testporangahaugabrielle:testdataset_porangahau_gabrielle"   # (c)
   # ===== Paper 2 Q3 control (2026-11-01): M1-B row (k) no-fine-topography @400k through the S3/S4/S5/S6 + Gabrielle tests
   #       (options/test/05_FMPFTV8Abl_noFineTopo_*_eval_<tag>.pbs, 09_FMPFTV8Abl_noFineTopo_*). Baselines: same as the 01
   #       rows (already DONE-1028 / S6 lines) -> RUN_BASELINES=0 except with the S6 lines. Its 100y42h0c eval = M1 block. =====
-  "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test100y42h0c_xres16:testdataset_100y42h0c_xres16_ds8"   # S3
-  "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test1000y48h0cx1p25:testdataset_1000y48h0cx1p25"   # S4
-  "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test1000y48h0cx1p5:testdataset_1000y48h0cx1p5"
-  "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test1000y48h0cx2p0:testdataset_1000y48h0cx2p0"
-  "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test1000y48h0cx3p0:testdataset_1000y48h0cx3p0"   # OPTIONAL stress test
-  "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test1000y48h0c:testdataset_1000y48h0c"   # x1, seen scenario
-  "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test1000y42h0c:testdataset_1000y42h0c"   # x1, unseen reference
-  "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test100y48h0cdp11:testdataset_100y48h0cdp11"   # S5
-  "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test100y48h0cdp21:testdataset_100y48h0cdp21"
-  "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test100y48h0c:testdataset_100y48h0c"   # single peak, seen scenario
+  # DONE-1102 "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test100y42h0c_xres16:testdataset_100y42h0c_xres16_ds8"   # S3
+  # DONE-1102 "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test1000y48h0cx1p25:testdataset_1000y48h0cx1p25"   # S4
+  # DONE-1102 "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test1000y48h0cx1p5:testdataset_1000y48h0cx1p5"
+  # DONE-1102 "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test1000y48h0cx2p0:testdataset_1000y48h0cx2p0"
+  # DONE-1102 "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test1000y48h0cx3p0:testdataset_1000y48h0cx3p0"   # OPTIONAL stress test
+  # DONE-1102 "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test1000y48h0c:testdataset_1000y48h0c"   # x1, seen scenario
+  # DONE-1102 "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test1000y42h0c:testdataset_1000y42h0c"   # x1, unseen reference
+  # DONE-1102 "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test100y48h0cdp11:testdataset_100y48h0cdp11"   # S5
+  # DONE-1102 "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test100y48h0cdp21:testdataset_100y48h0cdp21"
+  # DONE-1102 "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test100y48h0c:testdataset_100y48h0c"   # single peak, seen scenario
   # "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:test100y42h0c:testdataset_100y42h0c"   # single peak, unseen ref: RE-AGGREGATE only (M1 400k predictions must be in results/)
-  "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"   # Gisborne Gabrielle
-  "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"   # 01 @1M Gabrielle re-run 2026-11-01 (PSNR/SSIM; pairs with (k))
-  "09_FMPFTV8Abl_noFineTopo_SRx8_PorangahauZeroShot_Filter_InbaL1BCE_LW:testporangahau100y42h0c:testdataset_porangahau_100y42h0c"   # S6 B zero-shot (train HPC)
-  # "09_FMPFTV8Abl_noFineTopo_SRx8_PorangahauZeroShot_Filter_InbaL1BCE_LW:testporangahaugabrielle:testdataset_porangahau_gabrielle"   # S6 B Gabrielle (train HPC)
+  # DONE-1102 "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"   # Gisborne Gabrielle
+  # DONE-1102 "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"   # 01 @1M Gabrielle re-run 2026-11-01 (PSNR/SSIM; pairs with (k))
+  # DONE-1102 "09_FMPFTV8Abl_noFineTopo_SRx8_PorangahauZeroShot_Filter_InbaL1BCE_LW:testporangahau100y42h0c:testdataset_porangahau_100y42h0c"   # S6 B zero-shot (train HPC)
+  "09_FMPFTV8Abl_noFineTopo_SRx8_PorangahauZeroShot_Filter_InbaL1BCE_LW:testporangahaugabrielle:testdataset_porangahau_gabrielle"   # S6 B Gabrielle (train HPC)
 )
 
 # Paper 2 S4/S5: per-cell TRAINING max-depth maps (tools/make_train_maxdepth.sh, NeSI -> copy the .npz here;
@@ -514,9 +514,9 @@ TRAINMAX_EXP_TAGS=(
 #   all  = everything active below;  val = VAL_JOBS + VAL_BASELINE_JOBS only;  test = TEST_JOBS + TEST_BASELINE_JOBS only.
 #   Set PART=val -> qsub, then PART=test -> qsub again (PBS copies the script at qsub time).
 #   testbase = TEST_BASELINE_JOBS only (2026-10-29: rerun failed test baselines without redoing the model evals).
-PART=all   # 2026-11-02: S6 (a/b/c val+100y) + Q3 control (k)@400k + 01 Gabrielle re-run = 20 model evals
+PART=all   # 2026-11-02: only the 4 B Gabrielle evals (a/b/c/k); the 20 earlier ones = DONE-1102
 DRY_RUN=0
-RUN_BASELINES=1   # 2026-11-02: B val + B 100y (new) + Gisborne Gabrielle (Paper 1 json has no PSNR/SSIM -> recompute)
+RUN_BASELINES=1   # 2026-11-02: only B Gabrielle baseline (new); others DONE-1102
 FORCE_BASELINES=1   # Paper 2: recompute ds8 val + 100y baselines so they carry PSNR/SSIM
 # VAL baseline -> "selector_exp_base:train_dataset_dir" (selector's val vis pins the subset)
 VAL_BASELINE_JOBS=(
@@ -532,7 +532,7 @@ VAL_BASELINE_JOBS=(
   # DONE-1029 "06_FMPFTV8_SRx4_Filter_InbaL1BCE_LW:dataset_ds4_filtered_thr0p1_min10100_full"
   # DONE-1029 "06_FMPFTV8_SRx16_Filter_InbaL1BCE_LW:dataset_ds16_filtered_thr0p1_min2100_full"
   # --- Paper 2 S6 catchment B (uncomment with the S6 block; any S6 row pins the same B val patch set) ---
-  "09_FMPFTV8_SRx8_PorangahauZeroShot_Filter_InbaL1BCE_LW:dataset_porangahau_ds8_filtered_thr0p1_min5100_full"
+  # DONE-1102 "09_FMPFTV8_SRx8_PorangahauZeroShot_Filter_InbaL1BCE_LW:dataset_porangahau_ds8_filtered_thr0p1_min5100_full"
 )
 # TEST baseline -> "eval_tag:test_dataset_dir"
 # 2026-10-29: "# DONE-1028" = succeeded in the 2026-10-28 PART=test run -> commented for the PART=testbase rerun of
@@ -545,7 +545,7 @@ TEST_BASELINE_JOBS=(
   # DONE-1028 "test100y42h0c:testdataset_100y42h0c"   # Paper 2 M1
   # "test100y42h0c:testdataset_100y42h0c"
   # DONE-1028 "test1000y42h0c:testdataset_1000y42h0c"
-  "gabrielle:testdataset_gabrielle"
+  # DONE-1102 "gabrielle:testdataset_gabrielle"
   # "test100y42h0c:testdataset_100y42h0c_ds2"
   # "gabrielle:testdataset_gabrielle_ds2"
   # "test100y42h0c:testdataset_100y42h0c_ds4"
@@ -574,8 +574,8 @@ TEST_BASELINE_JOBS=(
   # DONE-1028 "test100y48h0cdp21:testdataset_100y48h0cdp21"
   # DONE-1028 "test100y48h0c:testdataset_100y48h0c"               # single peak, seen scenario
   # --- Paper 2 S6 catchment B (uncomment with the S6 block) ---
-  "testporangahau100y42h0c:testdataset_porangahau_100y42h0c"
-  # "testporangahaugabrielle:testdataset_porangahau_gabrielle"
+  # DONE-1102 "testporangahau100y42h0c:testdataset_porangahau_100y42h0c"
+  "testporangahaugabrielle:testdataset_porangahau_gabrielle"
 )
 # =======================================================================
 
