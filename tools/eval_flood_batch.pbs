@@ -212,6 +212,10 @@ VAL_JOBS=(
   # ===== Paper 2 Q3 control (2026-11-01): M1-B row (k) no-fine-topography @400k (same ckpt as its M1 row), zero-shot on
   #       catchment B. Gisborne stats (hybrid json). Train HPC (B data). Pair with the S6 (a) line above. =====
   # DONE-1102 "09_FMPFTV8Abl_noFineTopo_SRx8_PorangahauZeroShot_Filter_InbaL1BCE_LW:dataset_porangahau_ds8_filtered_thr0p1_min5100_full"   # (k) zero-shot @400k
+  # ===== Paper 2 S6/Q3 transfer control (2026-11-03): row (k) fine-tuned (from (k)@400k EMA, lr 5e-5) and from scratch
+  #       (B own stats) on B, 117454 it = same setup as TG-PFT (b)/(c). UNCOMMENT-ready: a missing vis-root is skipped. =====
+  "09_FMPFTV8Abl_noFineTopo_SRx8_PorangahauFT_Filter_InbaL1BCE_LW:dataset_porangahau_ds8_filtered_thr0p1_min5100_full"   # (k) fine-tuned
+  "09_FMPFTV8Abl_noFineTopo_SRx8_PorangahauScratch_Filter_InbaL1BCE_LW:dataset_porangahau_ds8_filtered_thr0p1_min5100_full"   # (k) from scratch
 )
 
 # TEST jobs -> "exp_base:eval_tag:test_dataset_dir"  (complete maps; read *_global).
@@ -441,9 +445,9 @@ TEST_JOBS=(
   # DONE-1102 "09_FMPFTV8_SRx8_PorangahauFT_Filter_InbaL1BCE_LW:testporangahau100y42h0c:testdataset_porangahau_100y42h0c"   # (b) fine-tuned from 01
   # DONE-1102 "09_FMPFTV8_SRx8_PorangahauScratch_Filter_InbaL1BCE_LW:testporangahau100y42h0c:testdataset_porangahau_100y42h0c"   # (c) from scratch
   # --- B Cyclone Gabrielle (test set built 2026-11-02, 4 test_flood_map done 2026-11-02) ---
-  "09_FMPFTV8_SRx8_PorangahauZeroShot_Filter_InbaL1BCE_LW:testporangahaugabrielle:testdataset_porangahau_gabrielle"   # (a)
-  "09_FMPFTV8_SRx8_PorangahauFT_Filter_InbaL1BCE_LW:testporangahaugabrielle:testdataset_porangahau_gabrielle"   # (b)
-  "09_FMPFTV8_SRx8_PorangahauScratch_Filter_InbaL1BCE_LW:testporangahaugabrielle:testdataset_porangahau_gabrielle"   # (c)
+  # DONE-1102 "09_FMPFTV8_SRx8_PorangahauZeroShot_Filter_InbaL1BCE_LW:testporangahaugabrielle:testdataset_porangahau_gabrielle"   # (a)
+  # DONE-1102 "09_FMPFTV8_SRx8_PorangahauFT_Filter_InbaL1BCE_LW:testporangahaugabrielle:testdataset_porangahau_gabrielle"   # (b)
+  # DONE-1102 "09_FMPFTV8_SRx8_PorangahauScratch_Filter_InbaL1BCE_LW:testporangahaugabrielle:testdataset_porangahau_gabrielle"   # (c)
   # ===== Paper 2 Q3 control (2026-11-01): M1-B row (k) no-fine-topography @400k through the S3/S4/S5/S6 + Gabrielle tests
   #       (options/test/05_FMPFTV8Abl_noFineTopo_*_eval_<tag>.pbs, 09_FMPFTV8Abl_noFineTopo_*). Baselines: same as the 01
   #       rows (already DONE-1028 / S6 lines) -> RUN_BASELINES=0 except with the S6 lines. Its 100y42h0c eval = M1 block. =====
@@ -461,7 +465,12 @@ TEST_JOBS=(
   # DONE-1102 "05_FMPFTV8Abl_noFineTopo_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"   # Gisborne Gabrielle
   # DONE-1102 "01_FMPFTV8_SRx8_Filter_InbaL1BCE_LW:gabrielle:testdataset_gabrielle"   # 01 @1M Gabrielle re-run 2026-11-01 (PSNR/SSIM; pairs with (k))
   # DONE-1102 "09_FMPFTV8Abl_noFineTopo_SRx8_PorangahauZeroShot_Filter_InbaL1BCE_LW:testporangahau100y42h0c:testdataset_porangahau_100y42h0c"   # S6 B zero-shot (train HPC)
-  "09_FMPFTV8Abl_noFineTopo_SRx8_PorangahauZeroShot_Filter_InbaL1BCE_LW:testporangahaugabrielle:testdataset_porangahau_gabrielle"   # S6 B Gabrielle (train HPC)
+  # DONE-1102 "09_FMPFTV8Abl_noFineTopo_SRx8_PorangahauZeroShot_Filter_InbaL1BCE_LW:testporangahaugabrielle:testdataset_porangahau_gabrielle"   # S6 B Gabrielle (train HPC)
+  # --- 2026-11-03 S6/Q3 transfer control: (k) fine-tuned / from scratch on B (train HPC), 100y42h0c + Gabrielle ---
+  "09_FMPFTV8Abl_noFineTopo_SRx8_PorangahauFT_Filter_InbaL1BCE_LW:testporangahau100y42h0c:testdataset_porangahau_100y42h0c"   # (k) fine-tuned
+  "09_FMPFTV8Abl_noFineTopo_SRx8_PorangahauFT_Filter_InbaL1BCE_LW:testporangahaugabrielle:testdataset_porangahau_gabrielle"   # (k) fine-tuned
+  "09_FMPFTV8Abl_noFineTopo_SRx8_PorangahauScratch_Filter_InbaL1BCE_LW:testporangahau100y42h0c:testdataset_porangahau_100y42h0c"   # (k) from scratch
+  "09_FMPFTV8Abl_noFineTopo_SRx8_PorangahauScratch_Filter_InbaL1BCE_LW:testporangahaugabrielle:testdataset_porangahau_gabrielle"   # (k) from scratch
 )
 
 # Paper 2 S4/S5: per-cell TRAINING max-depth maps (tools/make_train_maxdepth.sh, NeSI -> copy the .npz here;
@@ -514,9 +523,9 @@ TRAINMAX_EXP_TAGS=(
 #   all  = everything active below;  val = VAL_JOBS + VAL_BASELINE_JOBS only;  test = TEST_JOBS + TEST_BASELINE_JOBS only.
 #   Set PART=val -> qsub, then PART=test -> qsub again (PBS copies the script at qsub time).
 #   testbase = TEST_BASELINE_JOBS only (2026-10-29: rerun failed test baselines without redoing the model evals).
-PART=all   # 2026-11-02: only the 4 B Gabrielle evals (a/b/c/k); the 20 earlier ones = DONE-1102
+PART=all   # 2026-11-03: only (k) FT + Scratch on B: 2 val + 4 test (100y, Gabrielle); everything earlier = DONE
 DRY_RUN=0
-RUN_BASELINES=1   # 2026-11-02: only B Gabrielle baseline (new); others DONE-1102
+RUN_BASELINES=0   # 2026-11-03: B val / 100y / Gabrielle baselines all DONE-1102 (same data, model-independent)
 FORCE_BASELINES=1   # Paper 2: recompute ds8 val + 100y baselines so they carry PSNR/SSIM
 # VAL baseline -> "selector_exp_base:train_dataset_dir" (selector's val vis pins the subset)
 VAL_BASELINE_JOBS=(
@@ -575,7 +584,7 @@ TEST_BASELINE_JOBS=(
   # DONE-1028 "test100y48h0c:testdataset_100y48h0c"               # single peak, seen scenario
   # --- Paper 2 S6 catchment B (uncomment with the S6 block) ---
   # DONE-1102 "testporangahau100y42h0c:testdataset_porangahau_100y42h0c"
-  "testporangahaugabrielle:testdataset_porangahau_gabrielle"
+  # DONE-1102 "testporangahaugabrielle:testdataset_porangahau_gabrielle"
 )
 # =======================================================================
 
